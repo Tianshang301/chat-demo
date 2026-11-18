@@ -381,21 +381,21 @@ const toStopReason = (reason: string | null | undefined) => {
 export type OpenAIChatBody = {
   model: string
   messages: { role: 'system' | 'user' | 'assistant'; content: unknown }[]
-  thinking?: boolean
   stream?: boolean
   [key: string]: unknown
 }
 
 /**
- * POST /chat/completions（stream: true），把 OpenAI 的增量响应转换成 Messages 事件，
- * 让界面沿用同一套流式处理逻辑。支持 content、reasoning / reasoning_content 与 usage。
+ * POST /chat/completions，stream: true；将 OpenAI 流式响应转换为 Messages 事件。
+ * thinking 仅用于内部开关，不直接透传给服务商，避免不兼容字段导致 400。
  */
 export async function* streamOpenAIMessage(
   connection: ApiConnection,
   apiKey: string,
-  body: OpenAIChatBody,
+  body: OpenAIChatBody & { thinking?: boolean },
   signal: AbortSignal
 ): AsyncGenerator<MessageStreamEvent> {
+  const { thinking, ...rest } = body
   const response = await request(apiUrl(connection, '/chat/completions'), {
     method: 'POST',
     headers: {
@@ -404,10 +404,10 @@ export async function* streamOpenAIMessage(
       Accept: 'text/event-stream',
     },
     body: JSON.stringify({
-      ...body,
+      ...rest,
       stream: true,
       stream_options: { include_usage: true },
-      ...(body.thinking ? { reasoning_effort: 'medium' } : {}),
+      ...(thinking ? { reasoning_effort: 'medium' } : {}),
     }),
     signal,
   })
