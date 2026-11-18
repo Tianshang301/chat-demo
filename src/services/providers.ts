@@ -176,14 +176,25 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     name: 'OpenCode Go',
     group: 'coding',
     protocol: 'openai',
-    baseUrl: 'https://opencode.ai/zen/go/v1',
+    baseUrl: 'https://opencode.ai/inference/go/openai/v1',
     model: 'glm-5.3',
   },
 ]
 
 export const CUSTOM_PRESET_ID = 'custom'
 
-export const normalizeBaseUrl = (value: string): string => value.trim().replace(/\/+$/, '')
+export const normalizeBaseUrl = (value: string): string => {
+  const trimmed = value.trim()
+  const stripped = trimmed.replace(/\/+$/, '')
+  // 保留协议后的 //，避免输入 https:// 时中间态被截断导致无法继续键入
+  if (/^[a-z][a-z0-9+.-]*:$/i.test(stripped)) {
+    const suffix = trimmed.slice(stripped.length)
+    if (/^\/{1,2}$/.test(suffix)) {
+      return stripped + suffix
+    }
+  }
+  return stripped
+}
 
 export const findPreset = (
   protocol: ApiProtocol,
