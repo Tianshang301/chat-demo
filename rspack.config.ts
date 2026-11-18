@@ -86,7 +86,20 @@ export const createConfig = ({
     }),
   ],
   performance: { hints: false },
-  devServer: { port: 8090, ...devServer },
+  devServer: {
+    port: 8090,
+    proxy: [
+      {
+        // 本地开发代理：避免浏览器 CORS（如 SenseNova 预检 404）。设置中 Base URL 填 http://localhost:8090/proxy/sensenova
+        context: ['/proxy/sensenova'],
+        target: 'https://token.sensenova.cn',
+        changeOrigin: true,
+        secure: true,
+        pathRewrite: { '^/proxy/sensenova': '/v1' },
+      },
+    ],
+    ...devServer,
+  },
 })
 
 // eslint-disable-next-line import/no-default-export
