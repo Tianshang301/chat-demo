@@ -170,7 +170,7 @@ export const ApiSettings = ({ editor }: { editor: ApiKeyEditor }) => {
           <input
             id="api-cors-proxy"
             className={styles.textInput}
-            type="url"
+            type="text"
             inputMode="url"
             autoComplete="off"
             spellCheck={false}

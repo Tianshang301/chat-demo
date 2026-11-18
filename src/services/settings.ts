@@ -156,7 +156,10 @@ export const setBaseUrl = (baseUrl: string) => {
 }
 
 export const setCorsProxy = (corsProxy: string) => {
-  const value = corsProxy.trim()
+  let value = corsProxy.trim()
+  if (value && !/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {
+    value = `https://${value}`
+  }
   write(KEYS.corsProxy, value || null)
   useSettings.setState({ corsProxy: value })
 }

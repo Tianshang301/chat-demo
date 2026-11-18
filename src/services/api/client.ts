@@ -94,9 +94,13 @@ export const request = async (url: string, init: RequestInit): Promise<Response>
 
 export const apiUrl = ({ baseUrl, corsProxy }: ApiConnection, path: string) => {
   const target = `${baseUrl.trim().replace(/\/+$/, '')}${path.startsWith('/') ? path : `/${path}`}`
-  const proxy = corsProxy?.trim()
+  let proxy = corsProxy?.trim()
   if (!proxy) {
     return target
+  }
+  // 允许用户只填域名/IP；浏览器环境下缺省按 https 处理，避免生成相对地址
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(proxy)) {
+    proxy = `https://${proxy}`
   }
   if (proxy.includes('{url}')) {
     return proxy.replaceAll('{url}', encodeURIComponent(target))
@@ -104,7 +108,10 @@ export const apiUrl = ({ baseUrl, corsProxy }: ApiConnection, path: string) => {
   if (proxy.includes('{rawUrl}')) {
     return proxy.replaceAll('{rawUrl}', target)
   }
-  // 兼容常见前缀写法，如 https://corsproxy.io/? 或 https://proxy/；追加编码后的完整地址
+  // 兼容常见前缀写法：裸地址默认追加 /?url=，已有 ?url=/结尾/= 时直接追加目标
+  if (!/[/?]$/.test(proxy) && !/=$/.test(proxy) && !/[?&]url=?$/i.test(proxy)) {
+    proxy += proxy.includes('?') ? '&url=' : '/?url='
+  }
   return `${proxy}${encodeURIComponent(target)}`
 }
 
