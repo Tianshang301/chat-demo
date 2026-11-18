@@ -31,20 +31,20 @@ The output is written to `dist/`. Deploy it to a static web server or open `dist
 
 Open **Settings → API**, pick a provider preset, or edit the protocol and Base URL manually. The Base URL is the API root, not a full endpoint: the app appends `/models`, `/messages`, or `/chat/completions`. Use **Fetch models** to query `/models` for the current Base URL, search the results, and click a model to use it.
 
-| Provider                   | Protocol  | Base URL                                                  | Example model             |
-| -------------------------- | --------- | --------------------------------------------------------- | ------------------------- |
-| DeepSeek (default)         | Anthropic | `https://api.deepseek.com/anthropic/v1`                   | `deepseek-flash`          |
-| OpenAI                     | OpenAI    | `https://api.openai.com/v1`                               | `gpt-6.2-sol`             |
-| Anthropic                  | Anthropic | `https://api.anthropic.com/v1`                            | `claude-sonnet-5-5`       |
-| Google Gemini (OpenAI)     | OpenAI    | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-4-hydrogen`       |
-| xAI Grok                   | OpenAI    | `https://api.x.ai/v1`                                     | `grok-4.7`                |
-| OpenRouter                 | OpenAI    | `https://openrouter.ai/api/v1`                            | `openai/gpt-6.2-sol`      |
-| SenseNova Token Plan       | OpenAI    | `https://token.sensenova.cn/v1`                           | `sensenova-6.8-flash-lite`|
-| Alibaba Qwen (Intl)        | OpenAI    | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1`  | `qwen3-coder-plus`        |
-| Kimi (Moonshot Open Plat.) | OpenAI    | `https://api.moonshot.ai/v1`                              | `kimi-k2.5`               |
-| Z.ai GLM                   | OpenAI    | `https://api.z.ai/api/paas/v4`                            | `glm-5.3`                 |
-| Xiaomi MiMo                | OpenAI    | `https://api.xiaomimimo.com/v1`                           | `mimo-v2.6-pro`           |
-| OpenCode Zen               | OpenAI    | `https://opencode.ai/zen/v1`                              | `glm-5.3`                 |
+| Provider                   | Protocol  | Base URL                                                  | Example model        |
+| -------------------------- | --------- | --------------------------------------------------------- | -------------------- |
+| DeepSeek                   | Anthropic | `https://api.deepseek.com/anthropic/v1`                   | `deepseek-flash`     |
+| OpenAI                     | OpenAI    | `https://api.openai.com/v1`                               | `gpt-6.2-sol`        |
+| Anthropic                  | Anthropic | `https://api.anthropic.com/v1`                            | `claude-sonnet-5-5`  |
+| Google Gemini              | OpenAI    | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-4-hydrogen`  |
+| xAI Grok                   | OpenAI    | `https://api.x.ai/v1`                                     | `grok-4.7`           |
+| OpenRouter                 | OpenAI    | `https://openrouter.ai/api/v1`                            | `openai/gpt-6.2-sol` |
+| SenseNova Token Plan       | OpenAI    | `https://token.sensenova.cn/v1`                           | `sensenova-6.8-flash-lite` |
+| Qwen API (international)   | OpenAI    | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1`  | `qwen3-coder-plus`   |
+| Kimi Open Platform         | OpenAI    | `https://api.moonshot.ai/v1`                              | `kimi-k2.5`          |
+| Z.ai API                   | OpenAI    | `https://api.z.ai/api/paas/v4`                            | `glm-5.3`            |
+| Xiaomi MiMo API            | OpenAI    | `https://api.xiaomimimo.com/v1`                           | `mimo-v2.6-pro`      |
+| OpenCode Zen               | OpenAI    | `https://opencode.ai/zen/v1`                              | `glm-5.3`            |
 | Z.ai Coding Plan           | OpenAI    | `https://api.z.ai/api/coding/paas/v4`                     | `glm-5.3`            |
 | Z.ai Coding Plan           | Anthropic | `https://api.z.ai/api/anthropic/v1`                       | `glm-5.3`            |
 | Kimi Code                  | OpenAI    | `https://api.kimi.com/coding/v1`                          | `kimi-for-coding`    |
@@ -55,13 +55,11 @@ Open **Settings → API**, pick a provider preset, or edit the protocol and Base
 | Xiaomi Token Plan (CN)     | Anthropic | `https://token-plan-cn.xiaomimimo.com/anthropic/v1`       | `mimo-v2.6-pro`      |
 | OpenCode Go                | OpenAI    | `https://opencode.ai/inference/go/openai/v1`              | `glm-5.3`            |
 
+Coding plans usually require a plan-specific key and Base URL, separate from the standard API. Claude Pro/Max and ChatGPT/Codex subscriptions are OAuth-based and cannot be used here by Base URL; use an API key instead. Some gateways do not implement `GET /models`; the key is still saved when only that endpoint is missing.
+
+
 > [!NOTE]
-> **OAuth / subscription plans (Claude Pro/Max, ChatGPT/Codex, etc.)** cannot be used by pasting a Base URL and key. They rely on OAuth login, account-bound sessions, or dedicated clients. Use the provider’s official app, or a third-party API/gateway that exposes an OpenAI/Anthropic-compatible key (for example OpenRouter) if you want to use it here.
->
-> **Browser CORS:** this app calls APIs directly from the browser. Providers that do not allow cross-origin requests from your site (common on GitHub Pages) will fail with `Network Error...`; set **Settings → API → CORS proxy** to a trusted proxy you control if needed. Public proxies may require a key or be unreliable.
-
-Coding plans usually require a plan-specific key and Base URL, separate from the standard API. Some gateways do not implement GET /models; the key is still saved when only that endpoint is missing.
-
+> **Browser CORS:** this app calls APIs directly from the browser. If a provider does not allow cross-origin requests (common on GitHub Pages), set **Settings → API → CORS proxy** to a trusted HTTPS proxy, or run locally with `pnpm dev`. For SenseNova, local dev can use Base URL `http://localhost:8090/proxy/sensenova` (no CORS proxy field needed).
 DeepSeek-specific features (smart search, link reading, Files API uploads, automatic server titles, voice input, and read-aloud) are only shown when the Base URL points to `api.deepseek.com`. Other providers support streaming text, reasoning output, and image attachments sent inline as base64 data URLs.
 
 ## Features
