@@ -1,15 +1,22 @@
 import { create } from 'zustand'
 import type { TtsVoice } from './api/speech.js'
 import { normalizeLocation, type UserLocation } from './location.js'
+import { isDeepSeekApi, normalizeBaseUrl, type ApiProtocol } from './providers.js'
+import { estimateContextWindow } from './context.js'
 
 export type Locale = 'zh-CN' | 'en-US'
 
 /** 主题偏好；默认跟随系统 */
 export type ThemePreference = 'light' | 'dark' | 'system'
 
-/** 本机设置，存 localStorage：API Key、语言、主题、位置、朗读音色、深度思考与智能搜索开关、侧边栏收起状态 */
+/** 本机设置，存 localStorage：接口配置、API Key、语言、主题、位置、朗读音色、深度思考与智能搜索开关、侧边栏收起状态 */
 type Settings = {
   apiKey: string | null
+  apiProtocol: ApiProtocol
+  baseUrl: string
+  model: string
+  /** 当前模型的上下文窗口；null 表示服务商未返回且本地没有已核对的数值 */
+  contextWindow: number | null
   locale: Locale
   themePreference: ThemePreference
   location: UserLocation | null
@@ -21,6 +28,10 @@ type Settings = {
 
 const KEYS = {
   apiKey: 'chat-demo:api-key',
+  apiProtocol: 'chat-demo:api-protocol',
+  baseUrl: 'chat-demo:base-url',
+  model: 'chat-demo:model',
+  contextWindow: 'chat-demo:context-window',
   locale: 'chat-demo:locale',
   location: 'chat-demo:location',
   themePreference: 'chat-demo:theme-preference',
@@ -87,8 +98,35 @@ const initialThemePreference = (): ThemePreference => {
 /** 未保存过时使用服务端默认音色 stella（海星） */
 const initialTtsVoice = (): TtsVoice => (read(KEYS.ttsVoice) === 'tide' ? 'tide' : 'stella')
 
+const initialProtocol = (): ApiProtocol =>
+  read(KEYS.apiProtocol) === 'openai' ? 'openai' : 'anthropic'
+
+/** 未保存过时沿用构建期的 DeepSeek Anthropic 兼容地址 */
+const initialBaseUrl = (): string => {
+  const saved = read(KEYS.baseUrl)
+  return normalizeBaseUrl(saved || `${__API_ORIGIN__}/anthropic/v1`)
+}
+
+const initialModel = (): string => read(KEYS.model)?.trim() || 'deepseek-flash'
+
+const initialContextWindow = (): number | null => {
+  const saved = Number(read(KEYS.contextWindow))
+  if (Number.isFinite(saved) && saved > 0) {
+    return Math.floor(saved)
+  }
+  return estimateContextWindow(initialModel())
+}
+
+/** 当前接口是否支持 DeepSeek 的 Files、联网搜索、标题与语音扩展 */
+export const supportsDeepSeekTools = (settings: Pick<Settings, 'baseUrl'>): boolean =>
+  isDeepSeekApi(settings.baseUrl)
+
 export const useSettings = create<Settings>(() => ({
   apiKey: read(KEYS.apiKey),
+  apiProtocol: initialProtocol(),
+  baseUrl: initialBaseUrl(),
+  model: initialModel(),
+  contextWindow: initialContextWindow(),
   locale: initialLocale(),
   location: initialLocation(),
   themePreference: initialThemePreference(),
@@ -97,6 +135,44 @@ export const useSettings = create<Settings>(() => ({
   search: read(KEYS.search) === 'true',
   siderCollapsed: read(KEYS.siderCollapsed) === 'true',
 }))
+
+export const useSupportsDeepSeekTools = () => useSettings((state) => isDeepSeekApi(state.baseUrl))
+
+export const setApiProtocol = (apiProtocol: ApiProtocol) => {
+  write(KEYS.apiProtocol, apiProtocol)
+  useSettings.setState({ apiProtocol })
+}
+
+export const setBaseUrl = (baseUrl: string) => {
+  const normalized = normalizeBaseUrl(baseUrl)
+  write(KEYS.baseUrl, normalized)
+  useSettings.setState({ baseUrl: normalized })
+}
+
+export const setModel = (model: string, contextWindow?: number | null) => {
+  // 从 /models 选中模型时带上服务商返回的窗口；手动输入时改用已核对的值或未知
+  const window = contextWindow ?? estimateContextWindow(model)
+  write(KEYS.model, model)
+  write(KEYS.contextWindow, window === null ? null : String(window))
+  useSettings.setState({ model, contextWindow: window })
+}
+
+/** 应用服务商预设时一次性写入协议、Base URL、模型与上下文窗口，避免中间状态被保存 */
+export const applyApiConfig = (config: {
+  apiProtocol: ApiProtocol
+  baseUrl: string
+  model: string
+  contextWindow?: number | null
+}) => {
+  const baseUrl = normalizeBaseUrl(config.baseUrl)
+  const model = config.model.trim()
+  const contextWindow = config.contextWindow ?? estimateContextWindow(model)
+  write(KEYS.apiProtocol, config.apiProtocol)
+  write(KEYS.baseUrl, baseUrl)
+  write(KEYS.model, model)
+  write(KEYS.contextWindow, contextWindow === null ? null : String(contextWindow))
+  useSettings.setState({ apiProtocol: config.apiProtocol, baseUrl, model, contextWindow })
+}
 
 export const setLocale = (locale: Locale) => {
   write(KEYS.locale, locale)

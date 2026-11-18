@@ -1,8 +1,9 @@
 import { create } from 'zustand'
 import type { LinkedMessage, TranslationMessage } from '../i18n/index.js'
-import { uploadFile } from './api/client.js'
+import { uploadFile, type ApiConnection } from './api/client.js'
 import { classifyApiError, getUploadErrorInfo, isRetryableApiError } from './api/errors.js'
 import type { FilePurpose } from './api/types.js'
+import { useSettings } from './settings.js'
 import { ACCEPT_FILE_EXTS } from './uploadExts.js'
 
 /** 允许上传的扩展名，按扩展名白名单过滤，清单见 uploadExts.ts */
@@ -117,6 +118,11 @@ const next = () => {
 }
 
 /** 排队上传，最多同时上传 MAX_CONCURRENT 个；排队期间中止的任务不会发出请求 */
+const currentConnection = (): ApiConnection => {
+  const { apiProtocol, baseUrl } = useSettings.getState()
+  return { protocol: apiProtocol, baseUrl }
+}
+
 const enqueueUpload = (
   apiKey: string,
   file: Blob,
@@ -132,7 +138,14 @@ const enqueueUpload = (
       }
       try {
         const body = file instanceof File ? file : new File([file], name, { type: file.type })
-        resolve((await uploadFile(apiKey, body, getUploadPurpose(name, isImage), signal)).id)
+        const result = await uploadFile(
+          currentConnection(),
+          apiKey,
+          body,
+          getUploadPurpose(name, isImage),
+          signal
+        )
+        resolve(result.id)
       } catch (error) {
         reject(error)
       }
@@ -203,6 +216,11 @@ export const uploadAttachment = (
     .finally(() => pending.delete(id))
   pending.set(id, { promise, controller })
   return promise
+}
+
+/** 非 DeepSeek 接口不需要上传文件，附件保留在本地并在请求时转换为内联数据 */
+export const completeLocalAttachment = (id: string) => {
+  setTask(id, { status: 'done', serverId: id })
 }
 
 export const cancelUpload = (id: string) => {

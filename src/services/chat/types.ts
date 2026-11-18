@@ -75,30 +75,34 @@ export type AssistantMessage = MessageBranch & {
   id: string
   role: 'assistant'
   createdAt: number
-  /** 未记录模型时为 null，续写使用当前默认模型。 */
+  /** 未记录模型时为 null；续写使用当前默认模型。 */
   model: ChatModel | null
-  /** 请求时是否开启深度思考 */
+  /** 生成时的协议快照，用于识别会话内切换服务商导致的提示缓存失效 */
+  apiProtocol?: 'openai' | 'anthropic'
+  /** 生成时的 Base URL 快照 */
+  baseUrl?: string
+  /** 生成时是否启用深度思考 */
   thinking?: boolean
-  /** 请求时是否声明 deepseek_web_search；关闭时仍声明 deepseek_read_url */
+  /** 生成时是否启用 deepseek_web_search；关闭时可能包含 deepseek_read_url */
   search?: boolean
-  /** 本轮请求的系统信息快照；各回答版本独立保存，续写沿用。历史消息中缺省的快照保持为空。 */
+  /** 生成时注入的系统位置信息快照，续写版本沿用此值；重写采用最新值。历史消息中缺省的早期字段为空。 */
   latestReminder?: string
-  /** 是否允许作为续写前缀；仍需满足回复状态与内容限制。 */
+  /** 是否可作为续写前缀；后缀内搜索状态不可编辑。 */
   prefix: boolean
   status: ReplyStatus
-  /** 可识别的内容块按接收顺序排列；续写产生的块追加在已有块之后 */
+  /** 标识流式数据块按到达顺序排列；续写后的新块追加入到序列末尾 */
   blocks: ReplyBlock[]
   stopReason?: StopReason
   stopDetails?: StopDetails
-  /** 最近一次请求的用量，续写后更新 */
+  /** 最后一条累计用量；续写会更新 */
   usage?: MessageUsage
   error?: {
-    /** upload：发送前补传附件失败，请求没有发出 */
+    /** upload：附件准备或补传失败，请求还没有发出 */
     kind: ApiErrorKind | 'upload'
     message: string
     status?: number
     localMessage?: TranslationMessage
-    /** 仅 upload：重新上传是否可能成功（网络、限流、服务端繁忙）；过大、格式不支持为 false */
+    /** 仅 upload：本次上传是否可能成功（网络、额度、凭证或服务忙）；格式不支持为 false */
     retryable?: boolean
   }
 }

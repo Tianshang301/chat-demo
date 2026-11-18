@@ -4,7 +4,8 @@
  * 声明 deepseek_web_search / deepseek_read_url 或设置 safety_check.level 为 high 时进入扩展模式。
  */
 
-export type ChatModel = 'deepseek-flash' | 'deepseek-v4-pro'
+/** 模型 ID 由设置中的服务商预设或用户输入决定 */
+export type ChatModel = string
 
 // ---------- 响应：内容块 ----------
 
@@ -184,7 +185,8 @@ export type CreateMessageRequest = {
 
 // ---------- 响应：流式事件 ----------
 
-export type StopReason = 'end_turn' | 'max_tokens' | 'tool_use' | 'refusal'
+/** Anthropic 与 OpenAI 兼容服务可能返回不同的结束原因，保留原始字符串 */
+export type StopReason = string
 
 export type StopDetails = { type: 'refusal'; category: null; explanation: null }
 

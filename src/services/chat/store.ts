@@ -1,10 +1,25 @@
 import { create } from 'zustand'
 import { createId } from '../../utils/id.js'
-import { ApiError, streamMessage } from '../api/client.js'
-import type { ChatModel, CreateMessageRequest } from '../api/types.js'
+import { showToast } from '../../components/base/toastState.js'
+import { translate } from '../../i18n/index.js'
+import {
+  ApiError,
+  streamMessage,
+  streamOpenAIMessage,
+  type AnthropicMessageBody,
+  type ApiConnection,
+  type OpenAIChatBody,
+} from '../api/client.js'
+import type { CreateMessageRequest, MessageStreamEvent } from '../api/types.js'
 import { extractFileIds, getFileErrorCode, isRetryableApiError } from '../api/errors.js'
 import { cancelUpload, describeUploadError, uploadAttachment, useUploads } from '../attachments.js'
-import { useSettings } from '../settings.js'
+import {
+  estimateMessageTokens,
+  estimateTextTokens,
+  outputTokenReserve,
+  trimHistoryToBudget,
+} from '../context.js'
+import { supportsDeepSeekTools, useSettings } from '../settings.js'
 import { appendBranch, getVisibleMessages, normalizeSession, selectVersion } from './branches.js'
 import * as db from './db.js'
 import {
@@ -21,6 +36,8 @@ import {
   getContextRounds,
   settleReply,
   toRequestMessages,
+  toWireMessages,
+  type InlineImage,
 } from './reply.js'
 import {
   toSessionSummary,
@@ -32,10 +49,9 @@ import {
   type UserMessage,
 } from './types.js'
 
-/** deepseek-flash 同时支持深度思考与图片输入 */
-const MODEL: ChatModel = 'deepseek-flash'
-/** 所有生成请求统一携带的助手身份说明 */
-const SYSTEM_PROMPT = '该助手为DeepSeek，由深度求索公司创造。'
+/** DeepSeek 扩展接口统一携带的助手身份说明；其他服务商使用通用说明 */
+const DEEPSEEK_SYSTEM_PROMPT = '该助手为DeepSeek，由深度求索公司创造。'
+const SYSTEM_PROMPT = 'You are a helpful assistant.'
 /** 保留最近打开的详情；当前会话、生成中及尚未成功保存的会话不淘汰。 */
 const SESSION_CACHE_LIMIT = 5
 /** 安全审核固定开启，所有请求都走扩展模式 */
@@ -255,12 +271,14 @@ export const bindChatPersistence = () => {
 
 /** 按当前开关创建回复：深度思考对应 thinking，智能搜索控制 deepseek_web_search。 */
 const createReply = (): AssistantMessage => {
-  const { thinking, search } = useSettings.getState()
+  const { thinking, search, model, apiProtocol, baseUrl } = useSettings.getState()
   return {
     id: createId(),
     role: 'assistant',
     createdAt: Date.now(),
-    model: MODEL,
+    model,
+    apiProtocol,
+    baseUrl,
     thinking,
     search,
     prefix: true,
@@ -709,7 +727,7 @@ export const continueReply = (sessionId: string, messageId: string) => {
   const reply: AssistantMessage = {
     ...previous,
     // 未记录请求配置的回复，续写时使用默认模型和当前开关。
-    model: previous.model ?? MODEL,
+    model: previous.model ?? useSettings.getState().model,
     thinking: previous.thinking ?? thinking,
     search: previous.search ?? search,
     status: 'pending',
@@ -749,7 +767,13 @@ export const retryUpload = (sessionId: string, messageId: string) => {
   void streamReply(sessionId, reply, { history: path.slice(0, index - 1), question })
 }
 
-type Request = { history: Message[]; question: UserMessage; prefix?: AssistantMessage }
+type Request = {
+  history: Message[]
+  question: UserMessage
+  prefix?: AssistantMessage
+  /** 非 DeepSeek 接口在请求时读取的本地图片 */
+  images?: Map<string, InlineImage>
+}
 
 /** 把补传得到的 serverId 写回会话里所有引用同一附件的消息（编辑、重新生成会共用附件） */
 const saveServerIds = (sessionId: string, serverIds: Map<string, string>) => {
@@ -777,6 +801,9 @@ const saveServerIds = (sessionId: string, serverIds: Map<string, string>) => {
  * 本地也没有原件（导入的文档附件只有元数据）时返回 null，该附件只展示、不进入请求。
  */
 const ensureServerId = async (apiKey: string, file: FileAttachment): Promise<string | null> => {
+  if (!supportsDeepSeekTools(useSettings.getState())) {
+    return null
+  }
   if (file.serverId) {
     return file.serverId
   }
@@ -807,6 +834,56 @@ const refreshRequest = (sessionId: string, request: Request): Request => {
   }
 }
 
+const blobToDataUrl = (blob: Blob) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(reader.error ?? new Error('Unable to read attachment'))
+    reader.readAsDataURL(blob)
+  })
+
+/**
+ * 非 DeepSeek 接口不使用 Files API：只把图片原件读成 data URL，随消息内联发送。
+ * 历史轮次同样处理；本地没有原件的附件跳过。
+ */
+const prepareInlineImages = async (
+  request: Request,
+  signal: AbortSignal
+): Promise<Map<string, InlineImage>> => {
+  const files = new Map<string, FileAttachment>()
+  const add = (items: FileAttachment[]) => {
+    for (const file of items) {
+      if (file.isImage && !files.has(file.id)) {
+        files.set(file.id, file)
+      }
+    }
+  }
+  add(request.question.files)
+  for (const [user] of getContextRounds(request.history)) {
+    add(user.files)
+  }
+  const images = new Map<string, InlineImage>()
+  await Promise.all(
+    [...files.values()].map(async (file) => {
+      signal.throwIfAborted()
+      try {
+        const blob = await db.loadFile(file.id)
+        if (!blob) {
+          return
+        }
+        const dataUrl = await blobToDataUrl(blob)
+        images.set(file.id, {
+          mimeType: file.mimeType || blob.type || 'image/png',
+          dataUrl,
+        })
+      } catch {
+        // 单张图片读取失败时跳过，不影响文本对话。
+      }
+    })
+  )
+  return images
+}
+
 /**
  * 发送前补齐附件的 serverId。
  * - 本轮提问的附件并行补齐，任一失败则整体失败，已成功的照常写回，重试时复用成功结果；
@@ -818,6 +895,9 @@ const prepareFiles = async (sessionId: string, request: Request, signal: AbortSi
   // 服务端判定 file_id 失效时会清掉会话里的 serverId，先用最新消息替换请求快照，
   // 否则快照里仍是旧 id，补传会直接复用它。
   request = refreshRequest(sessionId, request)
+  if (!supportsDeepSeekTools(useSettings.getState())) {
+    return { ...request, images: await prepareInlineImages(request, signal) }
+  }
   const apiKey = useSettings.getState().apiKey ?? ''
   const serverIds = new Map<string, string>()
   // 停止生成立即生效；上传本身不取消（输入框与其他消息可能共用同一任务），完成后照常写回 serverId
@@ -954,6 +1034,49 @@ const waitForRetry = (attempt: number, signal: AbortSignal) =>
     signal.addEventListener('abort', onAbort, { once: true })
   })
 
+type WireContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image'; mimeType: string; dataUrl: string }
+
+const toAnthropicContent = (message: { text: string; images: InlineImage[] }) => {
+  if (message.images.length === 0) {
+    return message.text
+  }
+  const parts: unknown[] = message.images.map((image) => {
+    const comma = image.dataUrl.indexOf(',')
+    return {
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: image.mimeType,
+        data: comma === -1 ? image.dataUrl : image.dataUrl.slice(comma + 1),
+      },
+    }
+  })
+  if (message.text) {
+    parts.push({ type: 'text', text: message.text })
+  }
+  return parts
+}
+
+const toOpenAIContent = (message: { text: string; images: InlineImage[] }) => {
+  if (message.images.length === 0) {
+    return message.text
+  }
+  const parts: WireContentPart[] = []
+  if (message.text) {
+    parts.push({ type: 'text', text: message.text })
+  }
+  for (const image of message.images) {
+    parts.push({ type: 'image', mimeType: image.mimeType, dataUrl: image.dataUrl })
+  }
+  return parts.map((part) =>
+    part.type === 'text'
+      ? { type: 'text', text: part.text }
+      : { type: 'image_url', image_url: { url: part.dataUrl } }
+  )
+}
+
 /**
  * 请求并消费流：先补齐附件的 serverId，再发请求；流式增量按动画帧刷新内存，完成、失败或停止后落盘。
  * 补传失败时回复记为 upload 错误，可重试。
@@ -989,26 +1112,117 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
         reply = { ...reply, latestReminder }
         updateReply(sessionId, reply)
         persist(sessionId)
-        const messages = toRequestMessages(
-          prepared.history,
-          prepared.question,
-          prepared.prefix,
-          initial.thinking ?? false,
-          latestReminder
-        )
-        const events = streamMessage(
-          useSettings.getState().apiKey ?? '',
-          {
-            model: initial.model ?? MODEL,
-            system: SYSTEM_PROMPT,
-            messages,
-            thinking: { type: initial.thinking ? 'enabled' : 'disabled' },
-            safety_check: SAFETY_CHECK,
-            tools: serverTools(initial.search ?? false),
-            ...(titleRequests.has(controller) ? { title: { enabled: true } } : {}),
-          },
-          controller.signal
-        )
+        const settings = useSettings.getState()
+        const deepseek = supportsDeepSeekTools(settings)
+        const connection: ApiConnection = {
+          protocol: settings.apiProtocol,
+          baseUrl: settings.baseUrl,
+        }
+        const model = initial.model ?? settings.model
+        const previous = [...prepared.history]
+          .reverse()
+          .find(
+            (message): message is AssistantMessage =>
+              message.role === 'assistant' && !!message.apiProtocol
+          )
+        if (
+          previous &&
+          (previous.model !== model ||
+            previous.apiProtocol !== settings.apiProtocol ||
+            previous.baseUrl !== settings.baseUrl)
+        ) {
+          showToast(translate('apiCacheMiss'))
+        }
+        const system = deepseek
+          ? DEEPSEEK_SYSTEM_PROMPT
+          : `${SYSTEM_PROMPT}\n\nCurrent context: ${latestReminder}`
+        const contextWindow = settings.contextWindow
+        let history = prepared.history
+        if (contextWindow) {
+          const reserve = outputTokenReserve(contextWindow)
+          const budget =
+            contextWindow -
+            estimateTextTokens(system) -
+            estimateMessageTokens(prepared.question) -
+            (prepared.prefix ? estimateMessageTokens(prepared.prefix) : 0) -
+            reserve
+          const trimmed = trimHistoryToBudget(history, Math.max(0, budget))
+          history = trimmed.history
+          if (trimmed.dropped > 0) {
+            showToast(translate('apiContextTrimmed', { count: trimmed.dropped }))
+          }
+          if (budget < 0) {
+            showToast(translate('apiContextOverflow'))
+          }
+        }
+        const maxTokens = contextWindow ? Math.min(8192, outputTokenReserve(contextWindow)) : 8192
+        let events: AsyncGenerator<MessageStreamEvent>
+        if (deepseek) {
+          const messages = toRequestMessages(
+            history,
+            prepared.question,
+            prepared.prefix,
+            initial.thinking ?? false,
+            latestReminder
+          )
+          events = streamMessage(
+            connection,
+            settings.apiKey ?? '',
+            {
+              model,
+              system,
+              messages,
+              thinking: { type: initial.thinking ? 'enabled' : 'disabled' },
+              safety_check: SAFETY_CHECK,
+              tools: serverTools(initial.search ?? false),
+              ...(titleRequests.has(controller) ? { title: { enabled: true } } : {}),
+            } as CreateMessageRequest,
+            controller.signal,
+            prepared.history.some(
+              (message) => message.role === 'user' && message.files.length > 0
+            ) || prepared.question.files.length > 0
+          )
+        } else {
+          const wireMessages = toWireMessages(
+            history,
+            prepared.question,
+            'images' in prepared ? prepared.images : new Map(),
+            prepared.prefix
+          )
+          if (settings.apiProtocol === 'anthropic') {
+            const body: AnthropicMessageBody = {
+              model,
+              max_tokens: maxTokens,
+              system,
+              messages: wireMessages.map((message) => ({
+                role: message.role,
+                content: message.role === 'user' ? toAnthropicContent(message) : message.text,
+              })),
+              ...(initial.thinking
+                ? {
+                    thinking: {
+                      type: 'enabled',
+                      budget_tokens: Math.min(4096, Math.max(1024, maxTokens - 1)),
+                    },
+                  }
+                : {}),
+            }
+            events = streamMessage(connection, settings.apiKey ?? '', body, controller.signal)
+          } else {
+            const body: OpenAIChatBody = {
+              model,
+              messages: [
+                { role: 'system', content: system },
+                ...wireMessages.map((message) => ({
+                  role: message.role,
+                  content: message.role === 'user' ? toOpenAIContent(message) : message.text,
+                })),
+              ],
+              thinking: initial.thinking ?? false,
+            }
+            events = streamOpenAIMessage(connection, settings.apiKey ?? '', body, controller.signal)
+          }
+        }
         const blockIndexes = new Map<number, number>()
         for await (const event of events) {
           receivedContent ||= event.type === 'content_block_start'
@@ -1030,6 +1244,19 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
           } else {
             frame ||= requestAnimationFrame(flush)
           }
+        }
+        // 其他服务商没有标题扩展，用首条提问在本地生成标题
+        if (
+          !deepseek &&
+          titleRequests.has(controller) &&
+          !controller.signal.aborted &&
+          !get().importingHistory
+        ) {
+          const title = prepared.question.content.trim().replace(/\s+/g, ' ').slice(0, 40)
+          if (title) {
+            updateSession(sessionId, (session) => (session.title ? session : { ...session, title }))
+          }
+          titleRequests.delete(controller)
         }
         reply = settleReply(reply, 'done', Date.now())
         break

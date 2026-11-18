@@ -7,7 +7,12 @@ import {
   IconStopFill16,
   IconThinkOutline14,
 } from '../base/icons.js'
-import { setSearch, setThinking, useSettings } from '../../services/settings.js'
+import {
+  setSearch,
+  setThinking,
+  useSettings,
+  useSupportsDeepSeekTools,
+} from '../../services/settings.js'
 import { useIsMobile } from '../../app/viewport.js'
 import { sendMessage, stopReply, useChatStore } from '../../services/chat/store.js'
 import {
@@ -53,6 +58,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   const importingHistory = useChatStore((state) => state.importingHistory)
   const isMobile = useIsMobile()
   const search = useSettings((state) => state.search)
+  const deepseekTools = useSupportsDeepSeekTools()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const togglesRef = useRef<HTMLDivElement>(null)
@@ -214,33 +220,37 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
               <span className={styles.toggleLabel}>{t('thinkingSwitch')}</span>
             </button>
           </Tooltip>
-          <Tooltip content={t('deactivatedSearchTooltip')}>
-            <button
-              type="button"
-              className={clsx(styles.toggle, search && styles.selected)}
-              aria-label={t('search')}
-              aria-pressed={search}
-              onClick={() => setSearch(!search)}
-            >
-              <IconGlobeLanguageOutline14 />
-              <span className={styles.toggleLabel}>{t('search')}</span>
-            </button>
-          </Tooltip>
+          {deepseekTools ? (
+            <Tooltip content={t('deactivatedSearchTooltip')}>
+              <button
+                type="button"
+                className={clsx(styles.toggle, search && styles.selected)}
+                aria-label={t('search')}
+                aria-pressed={search}
+                onClick={() => setSearch(!search)}
+              >
+                <IconGlobeLanguageOutline14 />
+                <span className={styles.toggleLabel}>{t('search')}</span>
+              </button>
+            </Tooltip>
+          ) : null}
         </div>
         <div className={styles.right}>
-          <VoiceButton
-            status={voice.status}
-            disabled={!voice.available}
-            seconds={voice.seconds}
-            onClick={() => {
-              if (
-                voice.status !== 'idle' ||
-                (!useChatStore.getState().importingHistory && ensureApiKey())
-              ) {
-                void voice.toggle()
-              }
-            }}
-          />
+          {deepseekTools ? (
+            <VoiceButton
+              status={voice.status}
+              disabled={!voice.available}
+              seconds={voice.seconds}
+              onClick={() => {
+                if (
+                  voice.status !== 'idle' ||
+                  (!useChatStore.getState().importingHistory && ensureApiKey())
+                ) {
+                  void voice.toggle()
+                }
+              }}
+            />
+          ) : null}
           <IconButton
             size="m"
             tone="primary"

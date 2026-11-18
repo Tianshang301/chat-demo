@@ -165,9 +165,10 @@ const readDelta = (value: unknown): ContentBlockDelta | null => {
   }
 }
 
+/** 不同网关返回的 usage 字段不同，只要求输入、输出 token 可用 */
 const isUsage = (value: unknown) =>
   isRecord(value) &&
-  ['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'output_tokens'].every(
+  ['input_tokens', 'output_tokens'].every(
     (key) => typeof value[key] === 'number' && Number.isFinite(value[key])
   )
 
@@ -206,18 +207,14 @@ export const readMessageEvent = (value: unknown): MessageStreamEvent | null => {
       }
       break
     case 'message_delta':
-      if (
-        !isRecord(value.delta) ||
-        !['end_turn', 'max_tokens', 'tool_use', 'refusal'].includes(
-          value.delta.stop_reason as string
-        )
-      ) {
+      if (!isRecord(value.delta)) {
         return null
       }
       return {
         ...value,
         delta: {
           ...value.delta,
+          stop_reason: isString(value.delta.stop_reason) ? value.delta.stop_reason : 'end_turn',
           title: isOptionalString(value.delta.title) ? value.delta.title : undefined,
         },
         usage: isUsage(value.usage) ? value.usage : undefined,

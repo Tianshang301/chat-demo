@@ -2,7 +2,7 @@
 
 English | [简体中文](README.zh-CN.md)
 
-A static chat demo powered by the DeepSeek API. No application backend is required: the browser connects directly to the configured API service.
+A static chat demo for OpenAI Chat Completions and Anthropic Messages compatible APIs. No application backend is required: the browser connects directly to the configured API service. DeepSeek remains the default and keeps its search, file, title, and speech extensions.
 
 You can [try the app online](https://deepseek-ai.github.io/chat-demo/) or download the archive from [Releases](https://github.com/deepseek-ai/deepseek-chat-demo/releases), extract it, and double-click `index.html` to use it locally without installation or a build. Enter your API key in Settings before your first chat.
 
@@ -26,6 +26,37 @@ pnpm build
 ```
 
 The output is written to `dist/`. Deploy it to a static web server or open `dist/index.html` directly. Opening the file directly requires browser support for storage on `file://` pages and an API service that permits their cross-origin requests.
+
+## API configuration
+
+Open **Settings → API**, pick a provider preset, or edit the protocol and Base URL manually. The Base URL is the API root, not a full endpoint: the app appends `/models`, `/messages`, or `/chat/completions`. Use **Fetch models** to query `/models` for the current Base URL, search the results, and click a model to use it.
+
+| Provider                   | Protocol  | Base URL                                                  | Example model        |
+| -------------------------- | --------- | --------------------------------------------------------- | -------------------- |
+| DeepSeek                   | Anthropic | `https://api.deepseek.com/anthropic/v1`                   | `deepseek-flash`     |
+| OpenAI                     | OpenAI    | `https://api.openai.com/v1`                               | `gpt-6.2-sol`        |
+| Anthropic                  | Anthropic | `https://api.anthropic.com/v1`                            | `claude-sonnet-5-5`  |
+| Google Gemini              | OpenAI    | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-4-hydrogen`  |
+| xAI Grok                   | OpenAI    | `https://api.x.ai/v1`                                     | `grok-4.7`           |
+| OpenRouter                 | OpenAI    | `https://openrouter.ai/api/v1`                            | `openai/gpt-6.2-sol` |
+| Qwen API (international)   | OpenAI    | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1`  | `qwen3-coder-plus`   |
+| Kimi Open Platform         | OpenAI    | `https://api.moonshot.ai/v1`                              | `kimi-k2.5`          |
+| Z.ai API                   | OpenAI    | `https://api.z.ai/api/paas/v4`                            | `glm-5.3`            |
+| Xiaomi MiMo API            | OpenAI    | `https://api.xiaomimimo.com/v1`                           | `mimo-v2.6-pro`      |
+| OpenCode Zen               | OpenAI    | `https://opencode.ai/zen/v1`                              | `glm-5.3`            |
+| Z.ai Coding Plan           | OpenAI    | `https://api.z.ai/api/coding/paas/v4`                     | `glm-5.3`            |
+| Z.ai Coding Plan           | Anthropic | `https://api.z.ai/api/anthropic/v1`                       | `glm-5.3`            |
+| Kimi Code                  | OpenAI    | `https://api.kimi.com/coding/v1`                          | `kimi-for-coding`    |
+| Kimi Code                  | Anthropic | `https://api.kimi.com/coding/v1`                          | `kimi-for-coding`    |
+| Alibaba Coding Plan (CN)   | OpenAI    | `https://coding.dashscope.aliyuncs.com/v1`                | `qwen3-coder-plus`   |
+| Alibaba Coding Plan (intl) | OpenAI    | `https://coding-intl.dashscope.aliyuncs.com/v1`           | `qwen3-coder-plus`   |
+| Xiaomi Token Plan (CN)     | OpenAI    | `https://token-plan-cn.xiaomimimo.com/v1`                 | `mimo-v2.6-pro`      |
+| Xiaomi Token Plan (CN)     | Anthropic | `https://token-plan-cn.xiaomimimo.com/anthropic/v1`       | `mimo-v2.6-pro`      |
+| OpenCode Go                | OpenAI    | `https://opencode.ai/inference/go/openai/v1`              | `glm-5.3`            |
+
+Coding plans usually require a plan-specific key and Base URL, separate from the standard API. Claude Pro/Max and ChatGPT/Codex subscriptions are OAuth-based and cannot be used here by Base URL; use an API key instead. Some gateways do not implement `GET /models`; the key is still saved when only that endpoint is missing.
+
+DeepSeek-specific features (smart search, link reading, Files API uploads, automatic server titles, voice input, and read-aloud) are only shown when the Base URL points to `api.deepseek.com`. Other providers support streaming text, reasoning output, and image attachments sent inline as base64 data URLs.
 
 ## Features
 
@@ -55,7 +86,7 @@ Settings → Data → Delete all chats clears all local conversations, original 
 
 [rspack.config.ts](rspack.config.ts) uses `https://api.deepseek.com` by default. Use `createConfig({ apiOrigin, devServer })` to customize the API origin and development server proxy.
 
-Chat uses `deepseek-flash` by default through Anthropic-compatible Messages / Files APIs. Speech features use ASR / TTS endpoints. Requests include extensions for search, link reading, titles, and `latest_reminder`, so the configured service must support the corresponding capabilities. Supported attachment formats are determined by server-side validation.
+Chat uses `deepseek-flash` by default through Anthropic-compatible Messages / Files APIs. When the Base URL is not DeepSeek, requests use the standard OpenAI or Anthropic protocol, and speech features are hidden. DeepSeek requests include extensions for search, link reading, titles, and `latest_reminder`, so the configured service must support the corresponding capabilities. Supported attachment formats are determined by server-side validation.
 
 ```text
 src/

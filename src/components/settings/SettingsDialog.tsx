@@ -7,6 +7,7 @@ import {
   IconFollowsystemOutline16,
   IconLightOutline16,
   IconSettingsOutline16,
+  IconThinkOutline16,
   IconUploadOutline14,
 } from '../base/icons.js'
 import {
@@ -25,6 +26,7 @@ import {
   setThemePreference,
   setTtsVoice,
   useSettings,
+  useSupportsDeepSeekTools,
   type ThemePreference,
 } from '../../services/settings.js'
 import { useTranslate, type TranslationKey, type TranslationMessage } from '../../i18n/index.js'
@@ -32,7 +34,8 @@ import { Button } from '../base/Button.js'
 import { Modal } from '../base/Modal.js'
 import { Select } from '../base/Select.js'
 import { showToast } from '../base/toastState.js'
-import { ApiKeyConfirm, ApiKeyField, useApiKeyEditor } from './ApiKeyField.js'
+import { ApiKeyConfirm, useApiKeyEditor } from './ApiKeyField.js'
+import { ApiSettings } from './ApiSettings.js'
 import { closeSettings, useSettingsDialog, type SettingsSection } from './settingsDialogState.js'
 import styles from './Settings.module.css'
 
@@ -46,6 +49,7 @@ export const SettingsDialog = () => {
 }
 
 const sections: { value: SettingsSection; label: TranslationKey; icon: ReactNode }[] = [
+  { value: 'api', label: 'settingDialogAsideApiOptionLabel', icon: <IconThinkOutline16 /> },
   {
     value: 'general',
     label: 'settingDialogAsideGeneralOptionLabel',
@@ -57,6 +61,7 @@ const sections: { value: SettingsSection; label: TranslationKey; icon: ReactNode
 const SettingsContent = () => {
   const t = useTranslate()
   const isMobile = useIsMobile()
+  const deepseekTools = useSupportsDeepSeekTools()
   // 打开时按调用方指定的分组选中，之后在弹窗内切换
   const [section, setSection] = useState(() => useSettingsDialog.getState().section)
   // 切换分组不丢失正在输入的 API Key 与导入状态
@@ -94,16 +99,20 @@ const SettingsContent = () => {
           ))}
         </div>
         <div role="tabpanel" className={styles.content}>
-          {section === 'general' ? (
+          {section === 'api' ? (
+            <>
+              <ApiSettings editor={apiKeyEditor} />
+              {isMobile ? <ApiKeyConfirm editor={apiKeyEditor} /> : null}
+            </>
+          ) : section === 'general' ? (
             <>
               <ThemeSetting />
               <LocaleSetting />
-              <TtsVoiceSetting />
+              {deepseekTools ? <TtsVoiceSetting /> : null}
               <LocationSetting />
             </>
           ) : (
             <>
-              <ApiKeyField editor={apiKeyEditor} />
               <ImportHistory historyImport={historyImport} disabled={historyBusy} />
               <ExportHistory disabled={historyBusy} />
               <SettingCell
@@ -121,7 +130,6 @@ const SettingsContent = () => {
                   </Button>
                 }
               />
-              {isMobile ? <ApiKeyConfirm editor={apiKeyEditor} /> : null}
             </>
           )}
         </div>

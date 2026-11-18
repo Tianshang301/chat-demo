@@ -185,8 +185,7 @@ export const canContinueReply = (reply: AssistantMessage): boolean => {
     return false
   }
   return (
-    reply.status === 'stopped' ||
-    (reply.status === 'done' && reply.stopReason === 'max_tokens')
+    reply.status === 'stopped' || (reply.status === 'done' && reply.stopReason === 'max_tokens')
   )
 }
 
@@ -345,3 +344,52 @@ export const toRequestMessages = (
 /** 思考用时（秒），至少 1 秒 */
 export const getThinkingSeconds = (startedAt: number, endedAt: number) =>
   Math.max(1, Math.round((endedAt - startedAt) / 1000))
+
+/** 非 DeepSeek 接口使用的中间消息：图片以 data URL 内联，避免依赖 Files API */
+export type InlineImage = { mimeType: string; dataUrl: string }
+
+export type WireMessage = {
+  role: 'user' | 'assistant'
+  text: string
+  images: InlineImage[]
+}
+
+const toInlineImages = (
+  files: FileAttachment[],
+  images: ReadonlyMap<string, InlineImage>
+): InlineImage[] =>
+  files.flatMap((file) => {
+    const image = images.get(file.id)
+    return file.isImage && image ? [image] : []
+  })
+
+/** 把会话转成通用的 user / assistant 消息；历史里不可用或空白的回答不进上下文。 */
+export const toWireMessages = (
+  history: Message[],
+  question: UserMessage,
+  images: ReadonlyMap<string, InlineImage>,
+  prefix?: AssistantMessage
+): WireMessage[] => {
+  const messages: WireMessage[] = []
+  for (const [user, reply] of getContextRounds(history)) {
+    const text = user.content
+    const inline = toInlineImages(user.files, images)
+    if (!text && inline.length === 0) {
+      continue
+    }
+    messages.push({ role: 'user', text, images: inline })
+    messages.push({ role: 'assistant', text: getReplyText(reply), images: [] })
+  }
+  messages.push({
+    role: 'user',
+    text: question.content,
+    images: toInlineImages(question.files, images),
+  })
+  if (prefix?.prefix) {
+    const text = getReplyText(prefix)
+    if (text.trim()) {
+      messages.push({ role: 'assistant', text, images: [] })
+    }
+  }
+  return messages
+}

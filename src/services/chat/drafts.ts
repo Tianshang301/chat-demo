@@ -3,12 +3,14 @@ import type { TranslationMessage } from '../../i18n/index.js'
 import { createId } from '../../utils/id.js'
 import {
   cancelUpload,
+  completeLocalAttachment,
   isImage,
   resolveMimeType,
   uploadAttachment,
   validateFiles,
   type UploadTask,
 } from '../attachments.js'
+import { supportsDeepSeekTools, useSettings } from '../settings.js'
 import type { FileAttachment } from './types.js'
 
 export type DraftAttachment = {
@@ -47,6 +49,11 @@ export const setDraftText = (sessionId: string | null, text: string) =>
   updateDraft(sessionId, (draft) => ({ ...draft, text }))
 
 const upload = (attachment: DraftAttachment, apiKey: string) => {
+  // 只有 DeepSeek 扩展接口提供 Files API；其余协议在发送时把图片转为内联数据。
+  if (!supportsDeepSeekTools(useSettings.getState())) {
+    completeLocalAttachment(attachment.id)
+    return
+  }
   // 上传任务负责记录错误，输入框的附件卡片展示失败及重试入口。
   void uploadAttachment(
     apiKey,
