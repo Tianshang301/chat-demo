@@ -4,7 +4,7 @@
 
 支持 OpenAI Chat Completions 与 Anthropic Messages 兼容接口的静态聊天示例。无需应用后端，浏览器直接请求配置的 API 服务。默认使用 DeepSeek，并保留其搜索、文件、标题和语音扩展。
 
-点击 [在线体验](https://deepseek-ai.github.io/chat-demo/) 即可使用，也可以前往 [Releases](https://github.com/deepseek-ai/deepseek-chat-demo/releases) 下载压缩包，解压后双击 `index.html` 在本地使用，无需安装或构建。首次使用时，请在设置中填写 API Key。
+点击 [在线体验](https://tianshang301.github.io/chat-demo/) 即可使用，也可以前往 [Releases](https://github.com/deepseek-ai/deepseek-chat-demo/releases) 下载压缩包，解压后双击 `index.html` 在本地使用，无需安装或构建。首次使用时，请在设置中填写 API Key。
 
 ## 运行
 
