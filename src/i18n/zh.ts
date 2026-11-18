@@ -113,6 +113,10 @@ export const zh = {
   apiContextOverflow: '当前内容可能超出模型上下文窗口，若请求失败请缩短对话或切换更大窗口的模型',
   apiCodingPlanHint: 'Coding Plan 与普通 API 的 Key 和 Base URL 通常不同，请选择对应的预设。',
   apiBaseUrlInvalid: 'Base URL 需以 http:// 或 https:// 开头',
+  apiCorsProxy: 'CORS 代理（可选）',
+  apiCorsProxyPlaceholder: 'https://corsproxy.io/?url=',
+  apiCorsProxyDescription:
+    '在 GitHub Pages 等浏览器环境访问不支持跨域的服务商时，通过此代理转发请求。可填写前缀或包含 {url}/{rawUrl} 的模板。公共代理可能需要密钥、不稳定或暴露数据，建议使用自建可信代理。',
   apiFetchModels: '获取模型列表',
   apiFetchingModels: '正在获取...',
   apiSearchModels: '搜索模型',

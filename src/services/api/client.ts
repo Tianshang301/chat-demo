@@ -20,8 +20,10 @@ const ANTHROPIC_VERSION = '2026-10-21'
 
 export type ApiConnection = {
   protocol: ApiProtocol
-  /** API 根地址，不带末尾斜杠；请求时拼上 /models、/messages、/chat/completions */
+  /** API 根地址，去掉末尾斜杠；请求时拼接 /models、/messages、/chat/completions */
   baseUrl: string
+  /** 可选 CORS 代理；用于 GitHub Pages 等浏览器环境访问不支持跨域的服务商 */
+  corsProxy?: string
 }
 
 export type ApiErrorKind =
@@ -90,8 +92,21 @@ export const request = async (url: string, init: RequestInit): Promise<Response>
   return response
 }
 
-export const apiUrl = ({ baseUrl }: ApiConnection, path: string) =>
-  `${baseUrl.trim().replace(/\/+$/, '')}${path.startsWith('/') ? path : `/${path}`}`
+export const apiUrl = ({ baseUrl, corsProxy }: ApiConnection, path: string) => {
+  const target = `${baseUrl.trim().replace(/\/+$/, '')}${path.startsWith('/') ? path : `/${path}`}`
+  const proxy = corsProxy?.trim()
+  if (!proxy) {
+    return target
+  }
+  if (proxy.includes('{url}')) {
+    return proxy.replaceAll('{url}', encodeURIComponent(target))
+  }
+  if (proxy.includes('{rawUrl}')) {
+    return proxy.replaceAll('{rawUrl}', target)
+  }
+  // 兼容常见前缀写法，如 https://corsproxy.io/? 或 https://proxy/；追加编码后的完整地址
+  return `${proxy}${encodeURIComponent(target)}`
+}
 
 const authHeaders = (protocol: ApiProtocol, apiKey: string): Record<string, string> =>
   protocol === 'anthropic'

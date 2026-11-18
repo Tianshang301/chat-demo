@@ -6,6 +6,7 @@ import {
   applyApiConfig,
   setApiProtocol,
   setBaseUrl,
+  setCorsProxy,
   setModel,
   useSettings,
 } from '../../services/settings.js'
@@ -31,6 +32,7 @@ export const ApiSettings = ({ editor }: { editor: ApiKeyEditor }) => {
   const t = useTranslate()
   const apiProtocol = useSettings((state) => state.apiProtocol)
   const baseUrl = useSettings((state) => state.baseUrl)
+  const corsProxy = useSettings((state) => state.corsProxy)
   const model = useSettings((state) => state.model)
   const contextWindow = useSettings((state) => state.contextWindow)
   const preset = findPreset(apiProtocol, baseUrl, model)
@@ -41,12 +43,12 @@ export const ApiSettings = ({ editor }: { editor: ApiKeyEditor }) => {
   const [modelError, setModelError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
 
-  // 切换协议或 Base URL 后旧列表不再适用
+  // 切换协议、Base URL 或代理时清空模型列表和错误
   useEffect(() => {
     setModels(null)
     setModelError(null)
     setQuery('')
-  }, [apiProtocol, baseUrl])
+  }, [apiProtocol, baseUrl, corsProxy])
 
   const fetchModels = async () => {
     if (!apiKey) {
@@ -59,7 +61,7 @@ export const ApiSettings = ({ editor }: { editor: ApiKeyEditor }) => {
     setFetching(true)
     setModelError(null)
     try {
-      const list = await listModels({ protocol: apiProtocol, baseUrl }, apiKey)
+      const list = await listModels({ protocol: apiProtocol, baseUrl, corsProxy }, apiKey)
       setModels(list)
       if (list.length === 0) {
         setModelError(t('apiModelsEmpty'))
@@ -157,6 +159,26 @@ export const ApiSettings = ({ editor }: { editor: ApiKeyEditor }) => {
           ) : (
             <div className={styles.error}>{t('apiBaseUrlInvalid')}</div>
           )}
+        </div>
+      </div>
+
+      <div className={styles.cell}>
+        <div className={styles.apiConfig}>
+          <label className={styles.label} htmlFor="api-cors-proxy">
+            {t('apiCorsProxy')}
+          </label>
+          <input
+            id="api-cors-proxy"
+            className={styles.textInput}
+            type="url"
+            inputMode="url"
+            autoComplete="off"
+            spellCheck={false}
+            placeholder={t('apiCorsProxyPlaceholder')}
+            value={corsProxy}
+            onChange={(event) => setCorsProxy(event.target.value)}
+          />
+          <div className={styles.description}>{t('apiCorsProxyDescription')}</div>
         </div>
       </div>
 

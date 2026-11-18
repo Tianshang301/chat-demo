@@ -14,6 +14,8 @@ type Settings = {
   apiKey: string | null
   apiProtocol: ApiProtocol
   baseUrl: string
+  /** 可选 CORS 代理前缀；浏览器直连不支持跨域的服务商时使用 */
+  corsProxy: string
   model: string
   /** 当前模型的上下文窗口；null 表示服务商未返回且本地没有已核对的数值 */
   contextWindow: number | null
@@ -30,6 +32,7 @@ const KEYS = {
   apiKey: 'chat-demo:api-key',
   apiProtocol: 'chat-demo:api-protocol',
   baseUrl: 'chat-demo:base-url',
+  corsProxy: 'chat-demo:cors-proxy',
   model: 'chat-demo:model',
   contextWindow: 'chat-demo:context-window',
   locale: 'chat-demo:locale',
@@ -107,6 +110,8 @@ const initialBaseUrl = (): string => {
   return normalizeBaseUrl(saved || `${__API_ORIGIN__}/anthropic/v1`)
 }
 
+const initialCorsProxy = (): string => read(KEYS.corsProxy)?.trim() ?? ''
+
 const initialModel = (): string => read(KEYS.model)?.trim() || 'deepseek-flash'
 
 const initialContextWindow = (): number | null => {
@@ -125,6 +130,7 @@ export const useSettings = create<Settings>(() => ({
   apiKey: read(KEYS.apiKey),
   apiProtocol: initialProtocol(),
   baseUrl: initialBaseUrl(),
+  corsProxy: initialCorsProxy(),
   model: initialModel(),
   contextWindow: initialContextWindow(),
   locale: initialLocale(),
@@ -147,6 +153,12 @@ export const setBaseUrl = (baseUrl: string) => {
   const normalized = normalizeBaseUrl(baseUrl)
   write(KEYS.baseUrl, normalized)
   useSettings.setState({ baseUrl: normalized })
+}
+
+export const setCorsProxy = (corsProxy: string) => {
+  const value = corsProxy.trim()
+  write(KEYS.corsProxy, value || null)
+  useSettings.setState({ corsProxy: value })
 }
 
 export const setModel = (model: string, contextWindow?: number | null) => {

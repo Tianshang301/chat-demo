@@ -1117,6 +1117,7 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
         const connection: ApiConnection = {
           protocol: settings.apiProtocol,
           baseUrl: settings.baseUrl,
+          corsProxy: settings.corsProxy,
         }
         const model = initial.model ?? settings.model
         const previous = [...prepared.history]

@@ -123,6 +123,10 @@ export const en = {
     'Coding plans usually use a different key and Base URL from the standard API. Pick the matching preset.',
   apiBaseUrlInvalid: 'Base URL must start with http:// or https://',
   apiFetchModels: 'Fetch models',
+  apiCorsProxy: 'CORS proxy (optional)',
+  apiCorsProxyPlaceholder: 'https://corsproxy.io/?url=',
+  apiCorsProxyDescription:
+    'For GitHub Pages or other browser origins, requests are sent through this proxy. Use a prefix or {url}/{rawUrl} template. Public proxies may require a key, be unreliable, or expose traffic — use a trusted proxy you control.',
   apiFetchingModels: 'Fetching...',
   apiSearchModels: 'Search models',
   apiModelsEmpty: 'No models were returned for this Base URL',

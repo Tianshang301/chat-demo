@@ -60,6 +60,14 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     model: 'openai/gpt-6.2-sol',
   },
   {
+    id: 'sensenova',
+    name: 'SenseNova Token Plan',
+    group: 'api',
+    protocol: 'openai',
+    baseUrl: 'https://token.sensenova.cn/v1',
+    model: 'sensenova-6.8-flash-lite',
+  },
+  {
     id: 'deepseek',
     name: 'DeepSeek API (Anthropic)',
     group: 'api',

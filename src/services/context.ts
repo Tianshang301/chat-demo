@@ -16,6 +16,8 @@ const KNOWN_CONTEXT_WINDOWS: [RegExp, number][] = [
   [/(?:^|\/)glm-5\.3(?:-flash|-flashx)?$/, 1_000_000],
   [/(?:^|\/)mimo-v2\.6-pro(?:-ultraspeed)?$/, 1_000_000],
   [/(?:^|\/)kimi-for-coding$/, 262_144],
+  [/(?:^|\/)sensenova-6\.[78]-flash-lite$/, 262_144],
+  [/(?:^|\/)deepseek-v4-(?:flash|pro)$/, 1_048_576],
 ]
 
 /** 按已核对的模型名查找窗口；未知返回 null，避免用猜测值截断对话。 */

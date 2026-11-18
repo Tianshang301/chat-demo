@@ -34,7 +34,7 @@ export const useApiKeyForm = (onSaved?: () => void) => {
     if (!apiKey || verifying) {
       return
     }
-    const { apiProtocol, baseUrl } = useSettings.getState()
+    const { apiProtocol, baseUrl, corsProxy } = useSettings.getState()
     if (!/^https?:\/\/\S+/i.test(baseUrl)) {
       setFailure({ cause: null, baseUrl: true })
       return
@@ -43,7 +43,7 @@ export const useApiKeyForm = (onSaved?: () => void) => {
     setFailure(null)
     try {
       try {
-        await verifyApiKey({ protocol: apiProtocol, baseUrl }, apiKey)
+        await verifyApiKey({ protocol: apiProtocol, baseUrl, corsProxy }, apiKey)
       } catch (e) {
         // 部分兼容网关不实现 GET /models，只要不是鉴权或网络错误就允许保存
         if (!(e instanceof ApiError && (e.status === 404 || e.status === 405))) {

@@ -119,8 +119,8 @@ const next = () => {
 
 /** 排队上传，最多同时上传 MAX_CONCURRENT 个；排队期间中止的任务不会发出请求 */
 const currentConnection = (): ApiConnection => {
-  const { apiProtocol, baseUrl } = useSettings.getState()
-  return { protocol: apiProtocol, baseUrl }
+  const { apiProtocol, baseUrl, corsProxy } = useSettings.getState()
+  return { protocol: apiProtocol, baseUrl, corsProxy }
 }
 
 const enqueueUpload = (
