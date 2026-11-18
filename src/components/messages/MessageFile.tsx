@@ -4,31 +4,28 @@ import { useTranslate } from '../../i18n/index.js'
 import { useUploads } from '../../services/attachments.js'
 import { loadFile } from '../../services/chat/db.js'
 import type { FileAttachment } from '../../services/chat/types.js'
+import { downloadFile } from '../../services/fileView.js'
 import { IconPhotoErrorFill20, IconRefreshOutline16 } from '../base/icons.js'
 import { Tooltip } from '../base/Tooltip.js'
 import { FileCard } from '../files/FileCard.js'
+import { useViewUrl } from '../files/useViewUrl.js'
 import styles from './MessageFile.module.css'
 
-/** 原件从 IndexedDB 读出并生成本地地址；undefined 表示加载中，null 表示原件缺失。 */
-const useFileUrl = (id: string) => {
-  const [fileUrl, setFileUrl] = useState<{ id: string; url: string | null } | null>(null)
+/** 原件从 IndexedDB 读出；undefined 表示加载中，null 表示原件缺失。 */
+const useStoredFile = (id: string) => {
+  const [stored, setStored] = useState<{ id: string; blob: Blob | null } | null>(null)
   useEffect(() => {
-    let objectUrl: string | null = null
     let cancelled = false
     loadFile(id).then((blob) => {
       if (!cancelled) {
-        objectUrl = blob ? URL.createObjectURL(blob) : null
-        setFileUrl({ id, url: objectUrl })
+        setStored({ id, blob: blob ?? null })
       }
     })
     return () => {
       cancelled = true
-      if (objectUrl) {
-        URL.revokeObjectURL(objectUrl)
-      }
     }
   }, [id])
-  return fileUrl?.id === id ? fileUrl.url : undefined
+  return stored?.id === id ? stored.blob : undefined
 }
 
 /** 历史或失效附件的补传状态：只在还没有 serverId 时显示 */
@@ -45,7 +42,9 @@ const useUploadState = (file: FileAttachment) =>
  * 消息里的附件：
  * - 图片：纯图片显示 120×120 缩略图，与文件混排时为 64×64；上传中显示 loading 蒙层，
  *   上传失败显示品牌色描边 + 中心重试图标（可重试）或 photo-error 图标（不可重试）。
- * - 文件：显示文件卡片。
+ *   点击在新标签页打开。只有能显示的位图按图片展示，SVG 和无法识别的图片按文件处理。
+ * - 文件：显示文件卡片。PDF 与纯文本点击后在新标签页打开，其余下载。
+ * 可打开的地址按原件内容定型，不使用原件自带的 MIME，见 services/fileView.ts。
  */
 export const MessageFile = ({
   file,
@@ -56,8 +55,11 @@ export const MessageFile = ({
   onRetry: (() => void) | null
 }) => {
   const t = useTranslate()
-  const url = useFileUrl(file.id)
+  const blob = useStoredFile(file.id)
+  const viewUrl = useViewUrl(blob ?? null, file.isImage)
   const [failedUrl, setFailedUrl] = useState<string | null>(null)
+  // 可直接查看的地址：undefined 表示加载中；null 表示原件缺失或只能下载，浏览器显示不了的图片也按此处理
+  const url = blob === null || viewUrl === failedUrl ? null : viewUrl
   const upload = useUploadState(file)
   const uploading = upload?.status === 'uploading'
   const failed = upload?.status === 'error'
@@ -67,15 +69,7 @@ export const MessageFile = ({
   const retry = retryable ? onRetry : null
 
   if (file.isImage && url !== null) {
-    const preview = url ? (
-      failedUrl === url ? (
-        <span className={styles.failedIcon} role="img" aria-label={file.name}>
-          <IconPhotoErrorFill20 />
-        </span>
-      ) : (
-        <img src={url} alt={file.name} onError={() => setFailedUrl(url)} />
-      )
-    ) : null
+    const preview = url ? <img src={url} alt={file.name} onError={() => setFailedUrl(url)} /> : null
 
     // 上传中：本地原件已在 IndexedDB，先垫在蒙层下显示，避免只有一块灰色占位
     if (uploading) {
@@ -151,6 +145,17 @@ export const MessageFile = ({
     )
   }
 
+  const open =
+    blob && url !== undefined && !upload
+      ? () => {
+          if (url) {
+            window.open(url, '_blank', 'noreferrer')
+          } else {
+            downloadFile(blob, file.name)
+          }
+        }
+      : undefined
+
   return (
     <FileCard
       name={file.name}
@@ -158,7 +163,7 @@ export const MessageFile = ({
       status={uploading ? 'uploading' : failed ? 'error' : 'done'}
       error={errorText}
       onRetry={retry ?? undefined}
-      onOpen={url && !upload ? () => window.open(url, '_blank', 'noreferrer') : undefined}
+      onOpen={open}
     />
   )
 }

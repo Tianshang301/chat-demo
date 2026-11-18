@@ -6,6 +6,7 @@ import type { DraftAttachment } from '../../services/chat/drafts.js'
 import { IconCloseFill14, IconRefreshOutline16 } from '../base/icons.js'
 import { Tooltip } from '../base/Tooltip.js'
 import { FileCard } from '../files/FileCard.js'
+import { useViewUrl } from '../files/useViewUrl.js'
 import styles from './ChatInput.module.css'
 
 const UPLOADING: UploadTask = { status: 'uploading' }
@@ -37,7 +38,7 @@ export const DraftAttachments = memo(function DraftAttachments({
   )
 })
 
-/** 输入框里的文件：图片显示缩略图，其余显示文件卡片 */
+/** 输入框里的文件：能显示的位图显示缩略图，其余（含 SVG 和无法识别的图片）显示文件卡片 */
 const AttachmentItem = ({
   item,
   onRetry,
@@ -49,6 +50,8 @@ const AttachmentItem = ({
 }) => {
   const t = useTranslate()
   const task = useUploads((state) => state.tasks[item.id] ?? UPLOADING)
+  // undefined 表示还在判定，先按缩略图占位；null 表示不能按图片预览
+  const previewUrl = useViewUrl(item.isImage ? item.file : null, true)
   const status = task.status
   const error = task.status === 'error' ? t(task.error.key, task.error.params) : undefined
   // 过大、格式不支持等重试无效的失败只提示原因，需删除后再发送
@@ -57,12 +60,12 @@ const AttachmentItem = ({
   const retryLabel = t('uploadRetry', { message: error ?? t('uploadFileStatusFailed') })
   // 「上传失败」只显示重试图标，其余原因写在图片上：可重试时在图标下方，不可重试时贴底
   const showReason = failed && error !== undefined && error !== t('uploadFileStatusFailed')
-  return item.previewUrl ? (
+  return item.isImage && previewUrl !== null ? (
     <div
       className={clsx(styles.attachment, failed && styles.attachmentFailed)}
       title={error ?? item.file.name}
     >
-      <img src={item.previewUrl} alt={item.file.name} />
+      {previewUrl ? <img src={previewUrl} alt={item.file.name} /> : null}
       {status === 'uploading' ? <div className={styles.uploading} /> : null}
       {failed && retry ? (
         <Tooltip content={retryLabel}>
