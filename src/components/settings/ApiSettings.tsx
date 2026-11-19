@@ -7,6 +7,7 @@ import {
   setApiProtocol,
   setBaseUrl,
   setCorsProxy,
+  setDeepseekCompatible,
   setModel,
   useSettings,
 } from '../../services/settings.js'
@@ -33,6 +34,7 @@ export const ApiSettings = ({ editor }: { editor: ApiKeyEditor }) => {
   const apiProtocol = useSettings((state) => state.apiProtocol)
   const baseUrl = useSettings((state) => state.baseUrl)
   const corsProxy = useSettings((state) => state.corsProxy)
+  const deepseekCompatible = useSettings((state) => state.deepseekCompatible)
   const model = useSettings((state) => state.model)
   const contextWindow = useSettings((state) => state.contextWindow)
   const preset = findPreset(apiProtocol, baseUrl, model)
@@ -161,6 +163,25 @@ export const ApiSettings = ({ editor }: { editor: ApiKeyEditor }) => {
           )}
         </div>
       </div>
+
+      {apiProtocol === 'anthropic' ? (
+        <div className={styles.cell}>
+          <div className={styles.apiConfig}>
+            <label className={styles.checkboxRow}>
+              <input
+                className={styles.checkbox}
+                type="checkbox"
+                checked={deepseekCompatible}
+                onChange={(event) => setDeepseekCompatible(event.target.checked)}
+              />
+              <span className={styles.checkboxText}>
+                <span className={styles.label}>{t('apiDeepseekCompatible')}</span>
+                <span className={styles.description}>{t('apiDeepseekCompatibleDescription')}</span>
+              </span>
+            </label>
+          </div>
+        </div>
+      ) : null}
 
       <div className={styles.cell}>
         <div className={styles.apiConfig}>

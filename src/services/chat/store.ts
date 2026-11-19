@@ -808,7 +808,7 @@ const ensureServerId = async (apiKey: string, file: FileAttachment): Promise<str
     return file.serverId
   }
   const task = useUploads.getState().tasks[file.id]
-  if (task?.status === 'done') {
+  if (task?.status === 'done' && task.serverId) {
     return task.serverId
   }
   const blob = await db.loadFile(file.id)
@@ -842,6 +842,9 @@ const blobToDataUrl = (blob: Blob) =>
     reader.readAsDataURL(blob)
   })
 
+/** 按文件 id 缓存已转好的 data URL，避免同一会话多次发送时重复读取与编码 */
+const inlineImageCache = new Map<string, InlineImage>()
+
 /**
  * 非 DeepSeek 接口不使用 Files API：只把图片原件读成 data URL，随消息内联发送。
  * 历史轮次同样处理；本地没有原件的附件跳过。
@@ -866,16 +869,23 @@ const prepareInlineImages = async (
   await Promise.all(
     [...files.values()].map(async (file) => {
       signal.throwIfAborted()
+      const cached = inlineImageCache.get(file.id)
+      if (cached) {
+        images.set(file.id, cached)
+        return
+      }
       try {
         const blob = await db.loadFile(file.id)
         if (!blob) {
           return
         }
         const dataUrl = await blobToDataUrl(blob)
-        images.set(file.id, {
+        const image = {
           mimeType: file.mimeType || blob.type || 'image/png',
           dataUrl,
-        })
+        }
+        inlineImageCache.set(file.id, image)
+        images.set(file.id, image)
       } catch {
         // 单张图片读取失败时跳过，不影响文本对话。
       }
@@ -896,6 +906,9 @@ const prepareFiles = async (sessionId: string, request: Request, signal: AbortSi
   // 否则快照里仍是旧 id，补传会直接复用它。
   request = refreshRequest(sessionId, request)
   if (!supportsDeepSeekTools(useSettings.getState())) {
+    if (request.question.files.some((file) => !file.isImage)) {
+      showToast(translate('apiUnsupportedAttachments'))
+    }
     return { ...request, images: await prepareInlineImages(request, signal) }
   }
   const apiKey = useSettings.getState().apiKey ?? ''
@@ -1157,6 +1170,11 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
           }
         }
         const maxTokens = contextWindow ? Math.min(8192, outputTokenReserve(contextWindow)) : 8192
+        const thinkingBudgetTokens = initial.thinking
+          ? Math.min(4096, Math.max(1024, maxTokens - 1))
+          : undefined
+        const anthropicMaxTokens =
+          thinkingBudgetTokens !== undefined ? Math.max(maxTokens, thinkingBudgetTokens + 1) : maxTokens
         let events: AsyncGenerator<MessageStreamEvent>
         if (deepseek) {
           const messages = toRequestMessages(
@@ -1193,17 +1211,17 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
           if (settings.apiProtocol === 'anthropic') {
             const body: AnthropicMessageBody = {
               model,
-              max_tokens: maxTokens,
+              max_tokens: anthropicMaxTokens,
               system,
               messages: wireMessages.map((message) => ({
                 role: message.role,
                 content: message.role === 'user' ? toAnthropicContent(message) : message.text,
               })),
-              ...(initial.thinking
+              ...(thinkingBudgetTokens !== undefined
                 ? {
                     thinking: {
                       type: 'enabled',
-                      budget_tokens: Math.min(4096, Math.max(1024, maxTokens - 1)),
+                      budget_tokens: thinkingBudgetTokens,
                     },
                   }
                 : {}),
@@ -1212,6 +1230,7 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
           } else {
             const body: OpenAIChatBody = {
               model,
+              max_tokens: maxTokens,
               messages: [
                 { role: 'system', content: system },
                 ...wireMessages.map((message) => ({

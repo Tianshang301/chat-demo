@@ -60,7 +60,7 @@ Coding plans usually require a plan-specific key and Base URL, separate from the
 
 > [!NOTE]
 > **Browser CORS:** this app calls APIs directly from the browser. If a provider does not allow cross-origin requests (common on GitHub Pages), set **Settings → API → CORS proxy** to a trusted HTTPS proxy, or run locally with `pnpm dev`. For SenseNova, local dev can use Base URL `http://localhost:8090/proxy/sensenova` (no CORS proxy field needed).
-DeepSeek-specific features (smart search, link reading, Files API uploads, automatic server titles, voice input, and read-aloud) are only shown when the Base URL points to `api.deepseek.com`. Other providers support streaming text, reasoning output, and image attachments sent inline as base64 data URLs.
+DeepSeek-specific features (smart search, link reading, Files API uploads, automatic server titles, voice input, and read-aloud) are shown automatically for `api.deepseek.com`. If you use a self-hosted proxy or relay that forwards DeepSeek, enable **Settings → API → DeepSeek-compatible endpoint** to restore these extensions. Other providers support streaming text, reasoning output, and image attachments sent inline as base64 data URLs.
 
 ## Features
 

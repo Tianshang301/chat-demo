@@ -16,6 +16,8 @@ type Settings = {
   baseUrl: string
   /** 可选 CORS 代理前缀；浏览器直连不支持跨域的服务商时使用 */
   corsProxy: string
+  /** 自建反代或中转实际转发 DeepSeek 时启用，以恢复搜索、语音、Files 等扩展能力 */
+  deepseekCompatible: boolean
   model: string
   /** 当前模型的上下文窗口；null 表示服务商未返回且本地没有已核对的数值 */
   contextWindow: number | null
@@ -33,6 +35,7 @@ const KEYS = {
   apiProtocol: 'chat-demo:api-protocol',
   baseUrl: 'chat-demo:base-url',
   corsProxy: 'chat-demo:cors-proxy',
+  deepseekCompatible: 'chat-demo:deepseek-compatible',
   model: 'chat-demo:model',
   contextWindow: 'chat-demo:context-window',
   locale: 'chat-demo:locale',
@@ -112,6 +115,8 @@ const initialBaseUrl = (): string => {
 
 const initialCorsProxy = (): string => read(KEYS.corsProxy)?.trim() ?? ''
 
+const initialDeepseekCompatible = (): boolean => read(KEYS.deepseekCompatible) === 'true'
+
 const initialModel = (): string => read(KEYS.model)?.trim() || 'deepseek-flash'
 
 const initialContextWindow = (): number | null => {
@@ -123,14 +128,16 @@ const initialContextWindow = (): number | null => {
 }
 
 /** 当前接口是否支持 DeepSeek 的 Files、联网搜索、标题与语音扩展 */
-export const supportsDeepSeekTools = (settings: Pick<Settings, 'baseUrl'>): boolean =>
-  isDeepSeekApi(settings.baseUrl)
+export const supportsDeepSeekTools = (
+  settings: Pick<Settings, 'baseUrl' | 'deepseekCompatible'>
+): boolean => isDeepSeekApi(settings.baseUrl) || settings.deepseekCompatible
 
 export const useSettings = create<Settings>(() => ({
   apiKey: read(KEYS.apiKey),
   apiProtocol: initialProtocol(),
   baseUrl: initialBaseUrl(),
   corsProxy: initialCorsProxy(),
+  deepseekCompatible: initialDeepseekCompatible(),
   model: initialModel(),
   contextWindow: initialContextWindow(),
   locale: initialLocale(),
@@ -142,7 +149,8 @@ export const useSettings = create<Settings>(() => ({
   siderCollapsed: read(KEYS.siderCollapsed) === 'true',
 }))
 
-export const useSupportsDeepSeekTools = () => useSettings((state) => isDeepSeekApi(state.baseUrl))
+export const useSupportsDeepSeekTools = () =>
+  useSettings((state) => isDeepSeekApi(state.baseUrl) || state.deepseekCompatible)
 
 export const setApiProtocol = (apiProtocol: ApiProtocol) => {
   write(KEYS.apiProtocol, apiProtocol)
@@ -162,6 +170,11 @@ export const setCorsProxy = (corsProxy: string) => {
   }
   write(KEYS.corsProxy, value || null)
   useSettings.setState({ corsProxy: value })
+}
+
+export const setDeepseekCompatible = (deepseekCompatible: boolean) => {
+  write(KEYS.deepseekCompatible, String(deepseekCompatible))
+  useSettings.setState({ deepseekCompatible })
 }
 
 export const setModel = (model: string, contextWindow?: number | null) => {

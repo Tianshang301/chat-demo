@@ -299,6 +299,24 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+.checkboxRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.checkbox {
+  margin: 3px 0 0;
+  flex-shrink: 0;
+}
+
+.checkboxText {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .apiKey {
   display: flex;
   flex-direction: column;

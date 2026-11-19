@@ -153,15 +153,16 @@ const enqueueUpload = (
     next()
   })
 
-/**
- * 上传任务按附件的本地 id 登记：输入框选中即开始上传，全部成功后携带 serverId 发送，
- * 不会重复上传；导入的历史附件没有任务，发送前按本地原件补传。
- * 任务只在内存里，历史附件补传未完成时，刷新后会在下次请求前重新上传。
- */
-export type UploadTask =
-  | { status: 'uploading' }
-  | { status: 'done'; serverId: string }
-  | { status: 'error'; error: TranslationMessage; retryable: boolean }
+  /**
+   * 上传任务按附件的本地 id 登记：输入框选中即开始上传，全部成功后携带 serverId 发送，
+   * 不会重复上传；导入的历史附件没有任务，发送前按本地原件补传。
+   * 任务只在内存里，历史附件补传未完成时，刷新后会在下次请求前重新上传。
+   * 非 DeepSeek 接口的附件仅在本地就绪，serverId 为 null（发送时内联/跳过，不走 Files API）。
+   */
+  export type UploadTask =
+    | { status: 'uploading' }
+    | { status: 'done'; serverId: string | null }
+    | { status: 'error'; error: TranslationMessage; retryable: boolean }
 
 type UploadState = { tasks: Record<string, UploadTask> }
 
@@ -220,7 +221,7 @@ export const uploadAttachment = (
 
 /** 非 DeepSeek 接口不需要上传文件，附件保留在本地并在请求时转换为内联数据 */
 export const completeLocalAttachment = (id: string) => {
-  setTask(id, { status: 'done', serverId: id })
+  setTask(id, { status: 'done', serverId: null })
 }
 
 export const cancelUpload = (id: string) => {

@@ -102,16 +102,16 @@ export const retryDraftAttachment = (
   }
 }
 
-/** 发送按钮和实际提交共用规则：有内容，且全部附件已上传成功。 */
+/** 发送按钮和实际提交共用规则：有内容，且全部附件已就绪（已上传或本地可用）。 */
 export const prepareDraftMessage = (draft: Draft, tasks: Record<string, UploadTask>) => {
   const text = draft.text.trim()
   if (!text && draft.attachments.length === 0) {
     return null
   }
-  const files: (FileAttachment & { serverId: string; blob: Blob })[] = []
+  const files: (FileAttachment & { serverId: string | null; blob: Blob })[] = []
   for (const attachment of draft.attachments) {
     const task = tasks[attachment.id]
-    if (task?.status !== 'done' || !task.serverId) {
+    if (task?.status !== 'done') {
       return null
     }
     files.push({

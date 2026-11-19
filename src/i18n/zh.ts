@@ -111,6 +111,10 @@ export const zh = {
   apiCacheMiss: '已切换服务商或模型，提示缓存会失效；本次请求可能更贵、稍慢',
   apiContextTrimmed: '对话过长，已省略最早的 {count} 轮以适配上下文窗口',
   apiContextOverflow: '当前内容可能超出模型上下文窗口，若请求失败请缩短对话或切换更大窗口的模型',
+  apiUnsupportedAttachments: '当前服务商不支持文档附件，请求中已忽略相关文件。',
+  apiDeepseekCompatible: 'DeepSeek 兼容接口',
+  apiDeepseekCompatibleDescription:
+    '若此 Base URL 为实际转发 DeepSeek 的自建反代或中转，请勾选以恢复搜索、语音、Files API、自动标题等扩展能力（地址不是 api.deepseek.com 时也可生效）。',
   apiCodingPlanHint: 'Coding Plan 与普通 API 的 Key 和 Base URL 通常不同，请选择对应的预设。',
   apiBaseUrlInvalid: 'Base URL 需以 http:// 或 https:// 开头',
   apiCorsProxy: 'CORS 代理（可选）',

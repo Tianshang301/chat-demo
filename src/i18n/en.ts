@@ -119,6 +119,11 @@ export const en = {
   apiContextTrimmed: 'Conversation is too long; omitted the earliest {count} round(s) to fit the context window',
   apiContextOverflow:
     'Current content may exceed the model context window. Shorten the conversation or switch to a larger model if it fails.',
+  apiUnsupportedAttachments:
+    'Document attachments are not supported for this provider and were omitted from the request.',
+  apiDeepseekCompatible: 'DeepSeek-compatible endpoint',
+  apiDeepseekCompatibleDescription:
+    'Enable if this Base URL is a self-hosted proxy or relay that forwards DeepSeek. Restores DeepSeek extensions (search, voice, Files API, and automatic titles) when the URL is not api.deepseek.com.',
   apiCodingPlanHint:
     'Coding plans usually use a different key and Base URL from the standard API. Pick the matching preset.',
   apiBaseUrlInvalid: 'Base URL must start with http:// or https://',

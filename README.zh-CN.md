@@ -60,7 +60,7 @@ Coding Plan 通常需要套餐专用的 Key 和 Base URL，与普通 API 不同�
 > [!NOTE]
 > **浏览器跨域（CORS）：** 本应用在浏览器中直接请求 API。若服务商未允许跨域请求（GitHub Pages 部署时常见），可在 **设置 → 接口配置 → CORS 代理** 填写可信的 HTTPS 代理；或在本地运行 `pnpm dev`。SenseNova 本地开发可将 Base URL 设为 `http://localhost:8090/proxy/sensenova`（无需填写 CORS 代理）。
 
-只有在 Base URL 指向 `api.deepseek.com` 时才显示 DeepSeek 专属功能（智能搜索、链接阅读、Files API 上传、服务端标题、语音输入和回复朗读）。其他服务商支持流式文本、思考内容和图片附件，图片会以内联 base64 数据发送。
+Base URL 指向 `api.deepseek.com` 时会自动显示 DeepSeek 专属功能（智能搜索、链接阅读、Files API 上传、服务端标题、语音输入和回复朗读）。若使用实际转发 DeepSeek 的自建反代或中转，可在 **设置 → 接口设置 → DeepSeek 兼容接口** 中勾选以恢复这些扩展能力。其他服务商支持流式文本、思考内容和图片附件，图片会以内联 base64 数据发送。
 
 ## 功能
 
