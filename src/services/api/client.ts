@@ -395,7 +395,8 @@ export async function* streamOpenAIMessage(
   body: OpenAIChatBody & { thinking?: boolean },
   signal: AbortSignal
 ): AsyncGenerator<MessageStreamEvent> {
-  const { thinking: _thinking, ...rest } = body
+  const { thinking, ...rest } = body
+  void thinking
   const response = await request(apiUrl(connection, '/chat/completions'), {
     method: 'POST',
     headers: {
