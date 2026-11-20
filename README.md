@@ -60,7 +60,11 @@ Coding plans usually require a plan-specific key and Base URL, separate from the
 
 > [!NOTE]
 > **Browser CORS:** this app calls APIs directly from the browser. If a provider does not allow cross-origin requests (common on GitHub Pages), set **Settings → API → CORS proxy** to a trusted HTTPS proxy, or run locally with `pnpm dev`. For SenseNova, local dev can use Base URL `http://localhost:8090/proxy/sensenova` (no CORS proxy field needed).
-DeepSeek-specific features (smart search, link reading, Files API uploads, automatic server titles, voice input, and read-aloud) are shown automatically for `api.deepseek.com`. If you use a self-hosted proxy or relay that forwards DeepSeek, enable **Settings → API → DeepSeek-compatible endpoint** to restore these extensions. Other providers support streaming text, reasoning output, and image attachments sent inline as base64 data URLs.
+DeepSeek chat extensions (link reading, Files API uploads, automatic server titles, and native tools) are available for `api.deepseek.com`. If you use a self-hosted proxy or relay that forwards DeepSeek chat, enable **Settings → API → DeepSeek-compatible endpoint** to restore these extensions.
+
+**Settings → API** also provides independent **Web Search**, **Speech Recognition (ASR)**, and **Text to Speech (TTS)** configurations. Each has its own provider, Base URL, API key, and model/voice/language options (DeepSeek by default; DeepSeek providers fall back to the chat DeepSeek key when their key is empty). Supported speech providers: DeepSeek, Xiaomi MiMo, MiniMax, and OpenAI-compatible endpoints.
+
+When search is enabled in the composer, the chat model decides whether to search. DeepSeek chat can use DeepSeek's built-in web search; other chat providers can use the configured search service through a client-side `web_search` tool loop. Custom search endpoints accept `POST {"query":"..."}` and should return `{"results":[{"title","url","snippet","publishedAt?",...}]}`. Other providers support streaming text, reasoning output, and image attachments sent inline as base64 data URLs.
 
 ## Features
 
@@ -90,7 +94,7 @@ Settings → Data → Delete all chats clears all local conversations, original 
 
 [rspack.config.ts](rspack.config.ts) uses `https://api.deepseek.com` by default. Use `createConfig({ apiOrigin, devServer })` to customize the API origin and development server proxy.
 
-Chat uses `deepseek-flash` by default through Anthropic-compatible Messages / Files APIs. When the Base URL is not DeepSeek, requests use the standard OpenAI or Anthropic protocol, and speech features are hidden. DeepSeek requests include extensions for search, link reading, titles, and `latest_reminder`, so the configured service must support the corresponding capabilities. Supported attachment formats are determined by server-side validation.
+Chat uses `deepseek-flash` by default through Anthropic-compatible Messages / Files APIs. When the Base URL is not DeepSeek, requests use the standard OpenAI or Anthropic protocol. DeepSeek chat requests may include extensions for native search, link reading, titles, and `latest_reminder`, so a DeepSeek-compatible service must support the corresponding capabilities. Web search, ASR, and TTS are configured independently and can be used alongside non-DeepSeek chat providers when enabled. Supported attachment formats are determined by server-side validation.
 
 ```text
 src/

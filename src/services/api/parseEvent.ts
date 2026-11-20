@@ -19,7 +19,6 @@ const isCitation = (value: unknown): value is TextCitation =>
   isString(value.url) &&
   isNullableString(value.title)
 
-/** 只检查消费内容所需的字段，签名及服务端附带的信息保持原样。 */
 const readBlock = (value: unknown): OutputBlockStart | null => {
   if (!isRecord(value)) {
     return null
@@ -139,8 +138,16 @@ const readBlock = (value: unknown): OutputBlockStart | null => {
       } as OutputBlockStart
     }
     case 'tool_use':
-      // 不展示客户端工具内容；交给回复归并层关闭这条回复的续写能力。
-      break
+      if (!isString(value.id) || !isString(value.name)) {
+        return null
+      }
+      return {
+        ...value,
+        type: 'tool_use',
+        id: value.id,
+        name: value.name,
+        input: isRecord(value.input) ? value.input : {},
+      } as OutputBlockStart
     default:
       return null
   }
@@ -160,19 +167,19 @@ const readDelta = (value: unknown): ContentBlockDelta | null => {
       return isString(value.signature) ? (value as ContentBlockDelta) : null
     case 'citations_delta':
       return isCitation(value.citation) ? (value as ContentBlockDelta) : null
+    case 'input_json_delta':
+      return isString(value.partial_json) ? (value as ContentBlockDelta) : null
     default:
       return null
   }
 }
 
-/** 不同网关返回的 usage 字段不同，只要求输入、输出 token 可用 */
 const isUsage = (value: unknown) =>
   isRecord(value) &&
   ['input_tokens', 'output_tokens'].every(
     (key) => typeof value[key] === 'number' && Number.isFinite(value[key])
   )
 
-/** 未识别或无法安全消费的事件静默丢弃，不影响后续有效内容与正常结束。 */
 export const readMessageEvent = (value: unknown): MessageStreamEvent | null => {
   if (!isRecord(value)) {
     return null

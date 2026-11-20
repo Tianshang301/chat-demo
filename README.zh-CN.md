@@ -60,7 +60,11 @@ Coding Plan 通常需要套餐专用的 Key 和 Base URL，与普通 API 不同�
 > [!NOTE]
 > **浏览器跨域（CORS）：** 本应用在浏览器中直接请求 API。若服务商未允许跨域请求（GitHub Pages 部署时常见），可在 **设置 → 接口配置 → CORS 代理** 填写可信的 HTTPS 代理；或在本地运行 `pnpm dev`。SenseNova 本地开发可将 Base URL 设为 `http://localhost:8090/proxy/sensenova`（无需填写 CORS 代理）。
 
-Base URL 指向 `api.deepseek.com` 时会自动显示 DeepSeek 专属功能（智能搜索、链接阅读、Files API 上传、服务端标题、语音输入和回复朗读）。若使用实际转发 DeepSeek 的自建反代或中转，可在 **设置 → 接口设置 → DeepSeek 兼容接口** 中勾选以恢复这些扩展能力。其他服务商支持流式文本、思考内容和图片附件，图片会以内联 base64 数据发送。
+Base URL 指向 `api.deepseek.com` 时可使用 DeepSeek 聊天扩展能力（链接阅读、Files API 上传、服务端标题和原生工具等）。若使用实际转发 DeepSeek 的自建反代或中转，可在 **设置 → 接口设置 → DeepSeek 兼容接口** 中勾选以恢复这些扩展能力。
+
+**设置 → 接口设置** 中提供独立的 **联网搜索**、**语音识别（ASR）** 和 **语音朗读（TTS）** 配置，各自可设置提供商、Base URL、API Key 及模型/音色/语言等选项（默认 DeepSeek；DeepSeek 提供商在 Key 留空时可回退使用聊天 DeepSeek Key）。语音提供商支持 DeepSeek、小米 MiMo、MiniMax 和 OpenAI 兼容接口。
+
+在输入框开启搜索后，由聊天模型按需决定是否搜索。DeepSeek 聊天可使用 DeepSeek 内置联网搜索；其他聊天服务商可通过客户端 `web_search` 工具循环调用已配置的搜索服务。自定义搜索接口接收 `POST {"query":"..."}` 并应返回 `{"results":[{"title","url","snippet","publishedAt?",...}]}`。其他服务商支持流式文本、思考内容和图片附件，图片会以内联 base64 数据发送。
 
 ## 功能
 
@@ -90,7 +94,7 @@ API Key 和设置保存在浏览器 localStorage，会话及附件原件保存�
 
 [rspack.config.ts](rspack.config.ts) 默认连接 `https://api.deepseek.com`。`createConfig({ apiOrigin, devServer })` 支持自定义 API 地址和开发服务器代理。
 
-聊天默认使用 `deepseek-flash`，通过 Anthropic 兼容的 Messages / Files API 通信；Base URL 不是 DeepSeek 时改用标准 OpenAI 或 Anthropic 协议，并隐藏语音功能。DeepSeek 请求使用搜索、链接阅读、标题和 `latest_reminder` 等扩展，接入服务需支持相应能力。附件实际支持的格式以服务端校验为准。
+聊天默认使用 `deepseek-flash`，通过 Anthropic 兼容的 Messages / Files API 通信；Base URL 不是 DeepSeek 时改用标准 OpenAI 或 Anthropic 协议。DeepSeek 聊天请求可能包含原生搜索、链接阅读、标题和 `latest_reminder` 等扩展，接入的 DeepSeek 兼容服务需支持相应能力。联网搜索、ASR 和 TTS 可独立配置，并可在启用且可用时配合非 DeepSeek 聊天服务商使用。附件实际支持的格式以服务端校验为准。
 
 ```text
 src/

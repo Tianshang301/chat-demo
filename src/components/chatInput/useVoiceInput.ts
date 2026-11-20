@@ -1,16 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { TranslationMessage } from '../../i18n/index.js'
-import { transcribe } from '../../services/api/speech.js'
+import { transcribeSpeech } from '../../services/api/speech.js'
 import { startRecording, type Recording } from '../../services/speech/recorder.js'
-import { useSettings } from '../../services/settings.js'
+import { getAsrConfig } from '../../services/settings.js'
 import { showToast } from '../base/toastState.js'
 
 export type VoiceInputStatus = 'idle' | 'recording' | 'transcribing'
 
-/**
- * 录音依赖 getUserMedia，只在安全上下文可用（HTTPS、localhost、file://）。
- * 普通 HTTP 页面上直接禁用入口，避免点击后必然失败。
- */
 const AVAILABLE = typeof window === 'undefined' || window.isSecureContext
 
 const describeRecordingError = (error: unknown): TranslationMessage => {
@@ -25,13 +21,8 @@ const describeRecordingError = (error: unknown): TranslationMessage => {
   return { key: 'voiceInputFailed' }
 }
 
-/**
- * 语音输入（oneshot）：点击开始录音，再次点击结束并转写，结果交给 onText 填入输入框。
- * 转写中再次点击取消。录满 120 秒自动结束。
- */
 export const useVoiceInput = (onText: (text: string) => void) => {
   const [status, setStatus] = useState<VoiceInputStatus>('idle')
-  /** 本次录音已录秒数，只在录音中递增 */
   const [seconds, setSeconds] = useState(0)
   const recordingRef = useRef<Recording | null>(null)
   const controllerRef = useRef<AbortController | null>(null)
@@ -55,7 +46,6 @@ export const useVoiceInput = (onText: (text: string) => void) => {
   const finish = useCallback(async () => {
     const recording = recordingRef.current
     if (!recording) {
-      // 仍在等待麦克风授权时也允许取消；迟到的录音对象会立即释放。
       cancel()
       return
     }
@@ -75,7 +65,7 @@ export const useVoiceInput = (onText: (text: string) => void) => {
       controller = new AbortController()
       controllerRef.current = controller
       setStatus('transcribing')
-      const text = await transcribe(useSettings.getState().apiKey ?? '', audio, controller.signal)
+      const text = await transcribeSpeech(getAsrConfig(), audio, controller.signal)
       if (controller.signal.aborted || operationRef.current !== operation) {
         return
       }
@@ -136,7 +126,6 @@ export const useVoiceInput = (onText: (text: string) => void) => {
     }
     const startedAt = Date.now()
     setSeconds(0)
-    // 半秒刷新一次，让显示的秒数与实际录音时长保持一致
     const timer = setInterval(() => {
       setSeconds(Math.floor((Date.now() - startedAt) / 1000))
     }, 500)
@@ -145,7 +134,6 @@ export const useVoiceInput = (onText: (text: string) => void) => {
 
   useEffect(() => cancelOperation, [cancelOperation])
 
-  /** 当前录音的频谱分析节点，未录音时为 null */
   const getAnalyser = useCallback(() => recordingRef.current?.analyser ?? null, [])
 
   return { status, seconds, getAnalyser, toggle, cancel, available: AVAILABLE }

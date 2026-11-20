@@ -115,7 +115,7 @@ export const apiUrl = ({ baseUrl, corsProxy }: ApiConnection, path: string) => {
   return `${proxy}${encodeURIComponent(target)}`
 }
 
-const authHeaders = (protocol: ApiProtocol, apiKey: string): Record<string, string> =>
+export const authHeaders = (protocol: ApiProtocol, apiKey: string): Record<string, string> =>
   protocol === 'anthropic'
     ? {
         'x-api-key': apiKey,
@@ -339,6 +339,13 @@ type OpenAIUsage = {
   prompt_tokens_details?: { cached_tokens?: number }
 }
 
+type OpenAIToolCallDelta = {
+  index?: number
+  id?: string
+  type?: string
+  function?: { name?: string; arguments?: string }
+}
+
 type OpenAIChunk = {
   id?: string
   model?: string
@@ -347,6 +354,7 @@ type OpenAIChunk = {
       content?: string | null
       reasoning?: string | null
       reasoning_content?: string | null
+      tool_calls?: OpenAIToolCallDelta[]
     }
     finish_reason?: string | null
   }[]
@@ -422,7 +430,8 @@ export async function* streamOpenAIMessage(
   let usage: MessageUsage | undefined
   let finishReason: string | null | undefined
   let blockIndex = -1
-  let blockType: 'text' | 'thinking' | null = null
+  let blockType: 'text' | 'thinking' | 'tool' | null = null
+  const toolBlockIndex = new Map<number, number>()
 
   for await (const { data } of readServerSentEvents(response.body, signal)) {
     if (data === '[DONE]') {
@@ -494,6 +503,38 @@ export async function* streamOpenAIMessage(
         type: 'content_block_delta',
         index: blockIndex,
         delta: { type: 'text_delta', text: delta.content },
+      }
+    }
+    if (Array.isArray(delta.tool_calls)) {
+      for (const call of delta.tool_calls) {
+        const callIndex = call.index ?? 0
+        let idx = toolBlockIndex.get(callIndex)
+        if (idx === undefined) {
+          if (blockType !== null) {
+            yield { type: 'content_block_stop', index: blockIndex }
+          }
+          blockIndex += 1
+          idx = blockIndex
+          toolBlockIndex.set(callIndex, idx)
+          blockType = 'tool'
+          yield {
+            type: 'content_block_start',
+            index: idx,
+            content_block: {
+              type: 'tool_use',
+              id: call.id ?? `call_${callIndex}`,
+              name: call.function?.name ?? 'web_search',
+              input: {},
+            },
+          }
+        }
+        if (call.function?.arguments) {
+          yield {
+            type: 'content_block_delta',
+            index: idx,
+            delta: { type: 'input_json_delta', partial_json: call.function.arguments },
+          }
+        }
       }
     }
   }

@@ -10,7 +10,9 @@ import {
   type ApiConnection,
   type OpenAIChatBody,
 } from '../api/client.js'
-import type { CreateMessageRequest, MessageStreamEvent } from '../api/types.js'
+import type { ApiProtocol } from '../providers.js'
+import type { CreateMessageRequest, ServerToolBlock } from '../api/types.js'
+import { executeWebSearch } from '../api/search.js'
 import { extractFileIds, getFileErrorCode, isRetryableApiError } from '../api/errors.js'
 import { cancelUpload, describeUploadError, uploadAttachment, useUploads } from '../attachments.js'
 import {
@@ -19,7 +21,7 @@ import {
   outputTokenReserve,
   trimHistoryToBudget,
 } from '../context.js'
-import { supportsDeepSeekTools, useSettings } from '../settings.js'
+import { canUseSearch, getSearchConfig, supportsDeepSeekTools, useSettings } from '../settings.js'
 import { appendBranch, getVisibleMessages, normalizeSession, selectVersion } from './branches.js'
 import * as db from './db.js'
 import {
@@ -34,6 +36,7 @@ import {
   applyEvent,
   canContinueReply,
   getContextRounds,
+  getReplyText,
   settleReply,
   toRequestMessages,
   toWireMessages,
@@ -61,8 +64,8 @@ const FILE_RETRY_LIMIT = 2
 /** 退避基数，第 n 次重试等待 2^n 倍；连续失败达到上限就放弃，把原始报错展示出来 */
 const FILE_RETRY_BASE_DELAY = 1000
 
-/** 阅读链接始终开启，智能搜索开关控制是否另行声明搜索工具（含边想边搜）。 */
-const serverTools = (search: boolean): CreateMessageRequest['tools'] => {
+/** DeepSeek native tools: read_link always, web_search when enabled. */
+const deepseekServerTools = (search: boolean): CreateMessageRequest['tools'] => {
   const tools: CreateMessageRequest['tools'] = [
     { type: 'deepseek_read_url', name: 'deepseek_read_url' },
   ]
@@ -71,6 +74,32 @@ const serverTools = (search: boolean): CreateMessageRequest['tools'] => {
   }
   return tools
 }
+
+const WEB_SEARCH_TOOL = {
+  type: 'custom' as const,
+  name: 'web_search',
+  description:
+    'Search the web for up-to-date information. Use this when the user question may require current facts, recent events, or external sources. Provide a concise search query.',
+  input_schema: {
+    type: 'object',
+    properties: { query: { type: 'string', description: 'The search query.' } },
+    required: ['query'],
+  },
+}
+
+const WEB_SEARCH_OPENAI_TOOL = {
+  type: 'function' as const,
+  function: {
+    name: 'web_search',
+    description: WEB_SEARCH_TOOL.description,
+    parameters: WEB_SEARCH_TOOL.input_schema,
+  },
+}
+
+const WEB_SEARCH_PROMPT =
+  '\n\nYou can use the web_search tool when you need up-to-date or external information to answer the user. If you use web_search, base your answer on the returned results and cite them as [citation:N] when relevant.'
+
+const MAX_CLIENT_SEARCH_ROUNDS = 4
 
 /** 允许自动补标题的请求；手动重命名后取消本轮标题写入，包含主动清空标题的情况。 */
 const titleRequests = new Set<AbortController>()
@@ -1095,6 +1124,119 @@ const toOpenAIContent = (message: { text: string; images: InlineImage[] }) => {
  * 补传失败时回复记为 upload 错误，可重试。
  * 服务端判定 file_id 失效时重新补传后重发，退避重试且次数有上限，超过则按原始报错收尾。
  */
+const TITLE_TIMEOUT_MS = 15_000
+
+const fallbackSessionTitle = (text: string) => text.trim().replace(/\s+/g, ' ').slice(0, 40)
+
+const sanitizeGeneratedTitle = (value: string) => {
+  const line = value
+    .split(/\r?\n/)
+    .map((part) => part.trim())
+    .find((part) => part !== '')
+  if (!line) {
+    return ''
+  }
+  return line
+    .replace(/^(title|标题)\s*[:：]\s*/i, '')
+    .replace(/^["'`“”‘’]+|["'`“”‘’.,!?。，！？:：]+$/g, '')
+    .trim()
+    .slice(0, 60)
+}
+
+const requestGeneratedTitle = async (
+  connection: ApiConnection,
+  apiKey: string,
+  protocol: ApiProtocol,
+  model: string,
+  userText: string,
+  assistantText: string
+): Promise<string> => {
+  if (!apiKey) {
+    return ''
+  }
+  const user = userText.trim().slice(0, 800)
+  const assistant = assistantText.trim().slice(0, 800)
+  if (!user) {
+    return ''
+  }
+  const prompt = `Write a concise title for this conversation.
+- Use 3 to 8 words
+- Use the same language as the conversation
+- No quotes and no trailing punctuation
+- Output only the title
+
+User: ${user}
+Assistant: ${assistant || '(empty)'}`
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), TITLE_TIMEOUT_MS)
+  try {
+    const events =
+      protocol === 'anthropic'
+        ? streamMessage(
+            connection,
+            apiKey,
+            {
+              model,
+              max_tokens: 24,
+              messages: [{ role: 'user', content: prompt }],
+            },
+            controller.signal
+          )
+        : streamOpenAIMessage(
+            connection,
+            apiKey,
+            {
+              model,
+              max_tokens: 24,
+              messages: [{ role: 'user', content: prompt }],
+            },
+            controller.signal
+          )
+    let text = ''
+    for await (const event of events) {
+      if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+        text += event.delta.text
+      }
+    }
+    return sanitizeGeneratedTitle(text)
+  } catch {
+    return ''
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+const autoTitleSession = async (
+  sessionId: string,
+  connection: ApiConnection,
+  apiKey: string,
+  protocol: ApiProtocol,
+  model: string,
+  userText: string,
+  assistantText: string
+) => {
+  const fallback = fallbackSessionTitle(userText)
+  const generated = await requestGeneratedTitle(
+    connection,
+    apiKey,
+    protocol,
+    model,
+    userText,
+    assistantText
+  )
+  const title = generated || fallback
+  if (!title || get().importingHistory) {
+    return
+  }
+  const session = getSession(sessionId)
+  if (!session || session.title) {
+    return
+  }
+  updateSession(sessionId, (current) => (current.title ? current : { ...current, title }))
+  persist(sessionId)
+}
+
 const streamReply = async (sessionId: string, initial: AssistantMessage, request: Request) => {
   const controller = new AbortController()
   if (!getSession(sessionId)?.title) {
@@ -1127,6 +1269,8 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
         persist(sessionId)
         const settings = useSettings.getState()
         const deepseek = supportsDeepSeekTools(settings)
+        const searchEnabled = (initial.search ?? false) && canUseSearch(settings)
+        const clientSearch = !deepseek && searchEnabled
         const connection: ApiConnection = {
           protocol: settings.apiProtocol,
           baseUrl: settings.baseUrl,
@@ -1147,9 +1291,12 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
         ) {
           showToast(translate('apiCacheMiss'))
         }
-        const system = deepseek
+        let system = deepseek
           ? DEEPSEEK_SYSTEM_PROMPT
           : `${SYSTEM_PROMPT}\n\nCurrent context: ${latestReminder}`
+        if (clientSearch) {
+          system += WEB_SEARCH_PROMPT
+        }
         const contextWindow = settings.contextWindow
         let history = prepared.history
         if (contextWindow) {
@@ -1175,7 +1322,12 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
           : undefined
         const anthropicMaxTokens =
           thinkingBudgetTokens !== undefined ? Math.max(maxTokens, thinkingBudgetTokens + 1) : maxTokens
-        let events: AsyncGenerator<MessageStreamEvent>
+        const hasAttachments =
+          prepared.history.some(
+            (message) => message.role === 'user' && message.files.length > 0
+          ) || prepared.question.files.length > 0
+
+        let finished = false
         if (deepseek) {
           const messages = toRequestMessages(
             history,
@@ -1184,7 +1336,7 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
             initial.thinking ?? false,
             latestReminder
           )
-          events = streamMessage(
+          const events = streamMessage(
             connection,
             settings.apiKey ?? '',
             {
@@ -1193,14 +1345,149 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
               messages,
               thinking: { type: initial.thinking ? 'enabled' : 'disabled' },
               safety_check: SAFETY_CHECK,
-              tools: serverTools(initial.search ?? false),
+              tools: deepseekServerTools(searchEnabled),
               ...(titleRequests.has(controller) ? { title: { enabled: true } } : {}),
             } as CreateMessageRequest,
             controller.signal,
-            prepared.history.some(
-              (message) => message.role === 'user' && message.files.length > 0
-            ) || prepared.question.files.length > 0
+            hasAttachments
           )
+          const blockIndexes = new Map<number, number>()
+          for await (const event of events) {
+            receivedContent ||= event.type === 'content_block_start'
+            if (
+              event.type === 'message_delta' &&
+              (event.delta.stop_reason === 'end_turn' || event.delta.stop_reason === 'max_tokens') &&
+              event.delta.title?.trim() &&
+              titleRequests.has(controller) &&
+              !controller.signal.aborted &&
+              !get().importingHistory
+            ) {
+              const title = event.delta.title.trim()
+              updateSession(sessionId, (session) => (session.title ? session : { ...session, title }))
+              titleRequests.delete(controller)
+            }
+            reply = applyEvent(reply, event, Date.now(), blockIndexes)
+            if (document.visibilityState === 'hidden') {
+              flush()
+            } else {
+              frame ||= requestAnimationFrame(flush)
+            }
+          }
+          finished = true
+        } else if (settings.apiProtocol === 'anthropic') {
+          const wireMessages = toWireMessages(
+            history,
+            prepared.question,
+            'images' in prepared ? prepared.images : new Map(),
+            prepared.prefix
+          )
+          const messages: unknown[] = wireMessages.map((message) => ({
+            role: message.role,
+            content: message.role === 'user' ? toAnthropicContent(message) : message.text,
+          }))
+          for (let round = 0; round <= MAX_CLIENT_SEARCH_ROUNDS; round += 1) {
+            const blockIndexes = new Map<number, number>()
+            const toolMeta = new Map<number, { id: string; name: string; input: string }>()
+            const textParts: string[] = []
+            let stopReason: string | undefined
+            const events = streamMessage(
+              connection,
+              settings.apiKey ?? '',
+              {
+                model,
+                max_tokens: anthropicMaxTokens,
+                system,
+                messages,
+                ...(thinkingBudgetTokens !== undefined
+                  ? { thinking: { type: 'enabled', budget_tokens: thinkingBudgetTokens } }
+                  : {}),
+                ...(clientSearch ? { tools: [WEB_SEARCH_TOOL] } : {}),
+              } as AnthropicMessageBody,
+              controller.signal
+            )
+            for await (const event of events) {
+              receivedContent ||= event.type === 'content_block_start'
+              if (event.type === 'content_block_start' && event.content_block.type === 'tool_use') {
+                toolMeta.set(event.index, { id: event.content_block.id, name: event.content_block.name, input: '' })
+              }
+              if (event.type === 'content_block_delta') {
+                if (event.delta.type === 'input_json_delta') {
+                  const meta = toolMeta.get(event.index)
+                  if (meta) {
+                    meta.input += event.delta.partial_json
+                  }
+                }
+                if (event.delta.type === 'text_delta') {
+                  textParts.push(event.delta.text)
+                }
+              }
+              if (event.type === 'message_delta') {
+                stopReason = event.delta.stop_reason ?? stopReason
+              }
+              reply = applyEvent(reply, event, Date.now(), blockIndexes)
+              if (document.visibilityState === 'hidden') {
+                flush()
+              } else {
+                frame ||= requestAnimationFrame(flush)
+              }
+            }
+            const calls = [...toolMeta.values()].filter((c) => c.name === 'web_search')
+            if (!clientSearch || stopReason !== 'tool_use' || calls.length === 0 || round === MAX_CLIENT_SEARCH_ROUNDS) {
+              finished = true
+              break
+            }
+            const assistantContent: unknown[] = []
+            if (textParts.join('')) {
+              assistantContent.push({ type: 'text', text: textParts.join('') })
+            }
+            for (const call of toolMeta.values()) {
+              let input: unknown = {}
+              try {
+                input = call.input ? JSON.parse(call.input) : {}
+              } catch {
+                input = {}
+              }
+              assistantContent.push({ type: 'tool_use', id: call.id, name: call.name, input })
+            }
+            const toolResults: unknown[] = []
+            for (const call of calls) {
+              let query = ''
+              try {
+                query = String((JSON.parse(call.input || '{}') as { query?: unknown }).query ?? '')
+              } catch {
+                query = ''
+              }
+              let result
+              try {
+                result = await executeWebSearch(query, getSearchConfig(), controller.signal)
+              } catch (e) {
+                if (controller.signal.aborted) {
+                  throw e
+                }
+                result = { blocks: [] as ServerToolBlock[], sources: [], context: '' }
+              }
+              for (const block of result.blocks as ServerToolBlock[]) {
+                reply = { ...reply, blocks: [...reply.blocks, block] }
+              }
+              if (result.blocks.length > 0) {
+                receivedContent = true
+                if (document.visibilityState === 'hidden') {
+                  flush()
+                } else {
+                  frame ||= requestAnimationFrame(flush)
+                }
+              }
+              toolResults.push({
+                type: 'tool_result',
+                tool_use_id: call.id,
+                content:
+                  result.context ||
+                  (result.sources.length === 0 ? 'No results found.' : JSON.stringify(result.sources)),
+              })
+            }
+            messages.push({ role: 'assistant', content: assistantContent })
+            messages.push({ role: 'user', content: toolResults })
+          }
         } else {
           const wireMessages = toWireMessages(
             history,
@@ -1208,75 +1495,141 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
             'images' in prepared ? prepared.images : new Map(),
             prepared.prefix
           )
-          if (settings.apiProtocol === 'anthropic') {
-            const body: AnthropicMessageBody = {
-              model,
-              max_tokens: anthropicMaxTokens,
-              system,
-              messages: wireMessages.map((message) => ({
-                role: message.role,
-                content: message.role === 'user' ? toAnthropicContent(message) : message.text,
-              })),
-              ...(thinkingBudgetTokens !== undefined
-                ? {
-                    thinking: {
-                      type: 'enabled',
-                      budget_tokens: thinkingBudgetTokens,
-                    },
+          const messages: unknown[] = [
+            { role: 'system', content: system },
+            ...wireMessages.map((message) => ({
+              role: message.role,
+              content: message.role === 'user' ? toOpenAIContent(message) : message.text,
+            })),
+          ]
+          for (let round = 0; round <= MAX_CLIENT_SEARCH_ROUNDS; round += 1) {
+            const blockIndexes = new Map<number, number>()
+            const toolMeta = new Map<number, { id: string; name: string; input: string }>()
+            const textParts: string[] = []
+            let stopReason: string | undefined
+            const events = streamOpenAIMessage(
+              connection,
+              settings.apiKey ?? '',
+              {
+                model,
+                max_tokens: maxTokens,
+                messages: messages as OpenAIChatBody['messages'],
+                thinking: initial.thinking ?? false,
+                ...(clientSearch ? { tools: [WEB_SEARCH_OPENAI_TOOL] } : {}),
+              },
+              controller.signal
+            )
+            for await (const event of events) {
+              receivedContent ||= event.type === 'content_block_start'
+              if (event.type === 'content_block_start' && event.content_block.type === 'tool_use') {
+                toolMeta.set(event.index, { id: event.content_block.id, name: event.content_block.name, input: '' })
+              }
+              if (event.type === 'content_block_delta') {
+                if (event.delta.type === 'input_json_delta') {
+                  const meta = toolMeta.get(event.index)
+                  if (meta) {
+                    meta.input += event.delta.partial_json
                   }
-                : {}),
+                }
+                if (event.delta.type === 'text_delta') {
+                  textParts.push(event.delta.text)
+                }
+              }
+              if (event.type === 'message_delta') {
+                stopReason = event.delta.stop_reason ?? stopReason
+              }
+              reply = applyEvent(reply, event, Date.now(), blockIndexes)
+              if (document.visibilityState === 'hidden') {
+                flush()
+              } else {
+                frame ||= requestAnimationFrame(flush)
+              }
             }
-            events = streamMessage(connection, settings.apiKey ?? '', body, controller.signal)
-          } else {
-            const body: OpenAIChatBody = {
-              model,
-              max_tokens: maxTokens,
-              messages: [
-                { role: 'system', content: system },
-                ...wireMessages.map((message) => ({
-                  role: message.role,
-                  content: message.role === 'user' ? toOpenAIContent(message) : message.text,
-                })),
-              ],
-              thinking: initial.thinking ?? false,
+            const calls = [...toolMeta.values()].filter((c) => c.name === 'web_search')
+            if (!clientSearch || stopReason !== 'tool_use' || calls.length === 0 || round === MAX_CLIENT_SEARCH_ROUNDS) {
+              finished = true
+              break
             }
-            events = streamOpenAIMessage(connection, settings.apiKey ?? '', body, controller.signal)
+            const assistantMsg: {
+              role: 'assistant'
+              content: string | null
+              tool_calls: { id: string; type: 'function'; function: { name: string; arguments: string } }[]
+            } = {
+              role: 'assistant',
+              content: textParts.join('') || null,
+              tool_calls: [],
+            }
+            for (const call of toolMeta.values()) {
+              let args = call.input || '{}'
+              try {
+                JSON.parse(args)
+              } catch {
+                args = '{}'
+              }
+              assistantMsg.tool_calls.push({
+                id: call.id,
+                type: 'function',
+                function: { name: call.name, arguments: args },
+              })
+            }
+            messages.push(assistantMsg)
+            for (const call of calls) {
+              let query = ''
+              try {
+                query = String((JSON.parse(call.input || '{}') as { query?: unknown }).query ?? '')
+              } catch {
+                query = ''
+              }
+              let result
+              try {
+                result = await executeWebSearch(query, getSearchConfig(), controller.signal)
+              } catch (e) {
+                if (controller.signal.aborted) {
+                  throw e
+                }
+                result = { blocks: [] as ServerToolBlock[], sources: [], context: '' }
+              }
+              for (const block of result.blocks as ServerToolBlock[]) {
+                reply = { ...reply, blocks: [...reply.blocks, block] }
+              }
+              if (result.blocks.length > 0) {
+                receivedContent = true
+                if (document.visibilityState === 'hidden') {
+                  flush()
+                } else {
+                  frame ||= requestAnimationFrame(flush)
+                }
+              }
+              messages.push({
+                role: 'tool',
+                tool_call_id: call.id,
+                content:
+                  result.context ||
+                  (result.sources.length === 0 ? 'No results found.' : JSON.stringify(result.sources)),
+              })
+            }
           }
         }
-        const blockIndexes = new Map<number, number>()
-        for await (const event of events) {
-          receivedContent ||= event.type === 'content_block_start'
-          if (
-            event.type === 'message_delta' &&
-            (event.delta.stop_reason === 'end_turn' || event.delta.stop_reason === 'max_tokens') &&
-            event.delta.title?.trim() &&
-            titleRequests.has(controller) &&
-            !controller.signal.aborted &&
-            !get().importingHistory
-          ) {
-            const title = event.delta.title.trim()
-            updateSession(sessionId, (session) => (session.title ? session : { ...session, title }))
-            titleRequests.delete(controller)
-          }
-          reply = applyEvent(reply, event, Date.now(), blockIndexes)
-          if (document.visibilityState === 'hidden') {
-            flush()
-          } else {
-            frame ||= requestAnimationFrame(flush)
-          }
-        }
-        // 其他服务商没有标题扩展，用首条提问在本地生成标题
         if (
           !deepseek &&
           titleRequests.has(controller) &&
           !controller.signal.aborted &&
           !get().importingHistory
         ) {
-          const title = prepared.question.content.trim().replace(/\s+/g, ' ').slice(0, 40)
-          if (title) {
-            updateSession(sessionId, (session) => (session.title ? session : { ...session, title }))
-          }
           titleRequests.delete(controller)
+          void autoTitleSession(
+            sessionId,
+            connection,
+            settings.apiKey ?? '',
+            settings.apiProtocol,
+            model,
+            prepared.question.content,
+            getReplyText(reply)
+          )
+        }
+        if (finished) {
+          reply = settleReply(reply, 'done', Date.now())
+          break
         }
         reply = settleReply(reply, 'done', Date.now())
         break

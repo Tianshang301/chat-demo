@@ -21,13 +21,28 @@ import { useChatStore } from '../../services/chat/store.js'
 import { regionCodes, getRegionName, provinces } from '../../services/location.js'
 import {
   isChineseBrowser,
+  setAsrApiKey,
+  setAsrBaseUrl,
+  setAsrLanguage,
+  setAsrModel,
+  setAsrProvider,
   setLocale,
   setLocation,
+  setSearchApiKey,
+  setSearchBaseUrl,
+  setSearchModel,
+  setSearchProvider,
   setThemePreference,
+  setTtsApiKey,
+  setTtsBaseUrl,
+  setTtsModel,
+  setTtsProvider,
   setTtsVoice,
   useSettings,
-  useSupportsDeepSeekTools,
+  type AsrProvider,
+  type SearchProvider,
   type ThemePreference,
+  type TtsProvider,
 } from '../../services/settings.js'
 import { useTranslate, type TranslationKey, type TranslationMessage } from '../../i18n/index.js'
 import { Button } from '../base/Button.js'
@@ -39,10 +54,6 @@ import { ApiSettings } from './ApiSettings.js'
 import { closeSettings, useSettingsDialog, type SettingsSection } from './settingsDialogState.js'
 import styles from './Settings.module.css'
 
-/**
- * 设置弹窗：分「通用设置」（主题、语言、朗读音色、位置）与「数据管理」（API Key、导入、导出、删除）。
- * 桌面端为居中弹窗、左侧导航；移动端为底部弹层、导航横排在内容上方
- */
 export const SettingsDialog = () => {
   const open = useSettingsDialog((state) => state.open)
   return open ? <SettingsContent /> : null
@@ -50,21 +61,14 @@ export const SettingsDialog = () => {
 
 const sections: { value: SettingsSection; label: TranslationKey; icon: ReactNode }[] = [
   { value: 'api', label: 'settingDialogAsideApiOptionLabel', icon: <IconThinkOutline16 /> },
-  {
-    value: 'general',
-    label: 'settingDialogAsideGeneralOptionLabel',
-    icon: <IconSettingsOutline16 />,
-  },
+  { value: 'general', label: 'settingDialogAsideGeneralOptionLabel', icon: <IconSettingsOutline16 /> },
   { value: 'data', label: 'settingDialogAsideDataOptionLabel', icon: <IconDataOutline16 /> },
 ]
 
 const SettingsContent = () => {
   const t = useTranslate()
   const isMobile = useIsMobile()
-  const deepseekTools = useSupportsDeepSeekTools()
-  // 打开时按调用方指定的分组选中，之后在弹窗内切换
   const [section, setSection] = useState(() => useSettingsDialog.getState().section)
-  // 切换分组不丢失正在输入的 API Key 与导入状态
   const apiKeyEditor = useApiKeyEditor()
   const historyImport = useHistoryImport()
   const historyDelete = useHistoryDelete()
@@ -102,13 +106,15 @@ const SettingsContent = () => {
           {section === 'api' ? (
             <>
               <ApiSettings editor={apiKeyEditor} />
+              <SearchSettings />
+              <AsrSettings />
+              <TtsSettings />
               {isMobile ? <ApiKeyConfirm editor={apiKeyEditor} /> : null}
             </>
           ) : section === 'general' ? (
             <>
               <ThemeSetting />
               <LocaleSetting />
-              {deepseekTools ? <TtsVoiceSetting /> : null}
               <LocationSetting />
             </>
           ) : (
@@ -119,13 +125,7 @@ const SettingsContent = () => {
                 label={t('deleteAllSessions')}
                 status={null}
                 action={
-                  <Button
-                    variant="dangerOutlined"
-                    size="m"
-                    className={styles.cellButton}
-                    disabled={historyBusy}
-                    onClick={historyDelete.open}
-                  >
+                  <Button variant="dangerOutlined" size="m" className={styles.cellButton} disabled={historyBusy} onClick={historyDelete.open}>
                     {t('delete')}
                   </Button>
                 }
@@ -140,12 +140,99 @@ const SettingsContent = () => {
   )
 }
 
-/** 删除确认保留在设置之上；失败可重试，成功只关闭确认弹窗。 */
-const DeleteAllConfirm = ({
-  historyDelete,
-}: {
-  historyDelete: ReturnType<typeof useHistoryDelete>
-}) => {
+const Field = ({ label, htmlFor, value, onChange, type = 'text', placeholder }: { label: string; htmlFor: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string }) => (
+  <div className={styles.apiConfig}>
+    <label className={styles.label} htmlFor={htmlFor}>{label}</label>
+    <input id={htmlFor} className={styles.textInput} type={type} autoComplete="off" spellCheck={false} placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} />
+  </div>
+)
+
+const SearchSettings = () => {
+  const t = useTranslate()
+  const provider = useSettings((s) => s.searchProvider)
+  const baseUrl = useSettings((s) => s.searchBaseUrl)
+  const apiKey = useSettings((s) => s.searchApiKey)
+  const model = useSettings((s) => s.searchModel)
+  return (
+    <div className={styles.cell}>
+      <div className={styles.apiConfig}>
+        <div className={styles.label}>{t('apiSearchTitle')}</div>
+        <Select
+          ariaLabel={t('apiSearchProvider')}
+          className={styles.presetSelect}
+          value={provider}
+          options={[
+            { value: 'deepseek', label: t('apiSearchProviderDeepseek') },
+            { value: 'custom', label: t('apiSearchProviderCustom') },
+          ]}
+          onChange={(v) => setSearchProvider(v as SearchProvider)}
+        />
+        <Field label={t('apiSearchBaseUrl')} htmlFor="search-base-url" value={baseUrl} onChange={setSearchBaseUrl} placeholder={provider === 'deepseek' ? 'https://api.deepseek.com/anthropic/v1' : 'https://example.com/search'} />
+        <Field label={t('apiSearchApiKey')} htmlFor="search-api-key" value={apiKey ?? ''} onChange={(v) => setSearchApiKey(v || null)} type="password" />
+        <Field label={t('apiSearchModel')} htmlFor="search-model" value={model} onChange={setSearchModel} placeholder="deepseek-flash" />
+        <div className={styles.description}>{t('apiSearchDescription')}</div>
+      </div>
+    </div>
+  )
+}
+
+const AsrSettings = () => {
+  const t = useTranslate()
+  const provider = useSettings((s) => s.asrProvider)
+  const baseUrl = useSettings((s) => s.asrBaseUrl)
+  const apiKey = useSettings((s) => s.asrApiKey)
+  const model = useSettings((s) => s.asrModel)
+  const language = useSettings((s) => s.asrLanguage)
+  const options = [
+    { value: 'deepseek', label: t('apiSpeechProviderDeepseek') },
+    { value: 'xiaomi', label: t('apiSpeechProviderXiaomi') },
+    { value: 'minimax', label: t('apiSpeechProviderMinimax') },
+    { value: 'openai', label: t('apiSpeechProviderOpenaiAsr') },
+  ]
+  return (
+    <div className={styles.cell}>
+      <div className={styles.apiConfig}>
+        <div className={styles.label}>{t('apiAsrTitle')}</div>
+        <Select ariaLabel={t('apiAsrProvider')} className={styles.presetSelect} value={provider} options={options} onChange={(v) => setAsrProvider(v as AsrProvider)} />
+        <Field label={t('apiAsrBaseUrl')} htmlFor="asr-base-url" value={baseUrl} onChange={setAsrBaseUrl} />
+        <Field label={t('apiAsrApiKey')} htmlFor="asr-api-key" value={apiKey ?? ''} onChange={(v) => setAsrApiKey(v || null)} type="password" />
+        <Field label={t('apiAsrModel')} htmlFor="asr-model" value={model} onChange={setAsrModel} />
+        <Field label={t('apiAsrLanguage')} htmlFor="asr-language" value={language} onChange={setAsrLanguage} placeholder="auto" />
+        <div className={styles.description}>{t('apiAsrDescription')}</div>
+      </div>
+    </div>
+  )
+}
+
+const TtsSettings = () => {
+  const t = useTranslate()
+  const provider = useSettings((s) => s.ttsProvider)
+  const baseUrl = useSettings((s) => s.ttsBaseUrl)
+  const apiKey = useSettings((s) => s.ttsApiKey)
+  const model = useSettings((s) => s.ttsModel)
+  const voice = useSettings((s) => s.ttsVoice)
+  const options = [
+    { value: 'deepseek', label: t('apiSpeechProviderDeepseek') },
+    { value: 'xiaomi', label: t('apiSpeechProviderXiaomi') },
+    { value: 'minimax', label: t('apiSpeechProviderMinimax') },
+    { value: 'openai', label: t('apiSpeechProviderOpenaiTts') },
+  ]
+  return (
+    <div className={styles.cell}>
+      <div className={styles.apiConfig}>
+        <div className={styles.label}>{t('apiTtsTitle')}</div>
+        <Select ariaLabel={t('apiTtsProvider')} className={styles.presetSelect} value={provider} options={options} onChange={(v) => setTtsProvider(v as TtsProvider)} />
+        <Field label={t('apiTtsBaseUrl')} htmlFor="tts-base-url" value={baseUrl} onChange={setTtsBaseUrl} />
+        <Field label={t('apiTtsApiKey')} htmlFor="tts-api-key" value={apiKey ?? ''} onChange={(v) => setTtsApiKey(v || null)} type="password" />
+        <Field label={t('apiTtsModel')} htmlFor="tts-model" value={model} onChange={setTtsModel} />
+        <Field label={t('apiTtsVoice')} htmlFor="tts-voice" value={voice} onChange={setTtsVoice} />
+        <div className={styles.description}>{t('apiTtsDescription')}</div>
+      </div>
+    </div>
+  )
+}
+
+const DeleteAllConfirm = ({ historyDelete }: { historyDelete: ReturnType<typeof useHistoryDelete> }) => {
   const t = useTranslate()
   return (
     <Modal
@@ -154,21 +241,8 @@ const DeleteAllConfirm = ({
       onClose={historyDelete.cancel}
       footer={
         <div className={styles.deleteActions} aria-busy={historyDelete.busy}>
-          <Button
-            variant="outlined"
-            autoFocus
-            disabled={historyDelete.busy}
-            onClick={historyDelete.cancel}
-          >
-            {t('cancel')}
-          </Button>
-          <Button
-            variant="danger"
-            disabled={historyDelete.busy}
-            onClick={() => void historyDelete.confirm()}
-          >
-            {t(historyDelete.busy ? 'historyDeleting' : 'deleteAllSessions')}
-          </Button>
+          <Button variant="outlined" autoFocus disabled={historyDelete.busy} onClick={historyDelete.cancel}>{t('cancel')}</Button>
+          <Button variant="danger" disabled={historyDelete.busy} onClick={() => void historyDelete.confirm()}>{t(historyDelete.busy ? 'historyDeleting' : 'deleteAllSessions')}</Button>
         </div>
       }
     >
@@ -181,7 +255,6 @@ const useHistoryDelete = () => {
   const [opened, setOpened] = useState(false)
   const [busy, setBusy] = useState(false)
   const deleting = useRef(false)
-
   const confirm = async () => {
     if (deleting.current) {
       return
@@ -199,11 +272,8 @@ const useHistoryDelete = () => {
       setBusy(false)
     }
   }
-
   return {
-    opened,
-    busy,
-    open: () => setOpened(true),
+    opened, busy, open: () => setOpened(true),
     cancel: () => {
       if (!deleting.current) {
         setOpened(false)
@@ -217,11 +287,7 @@ const LocationSetting = () => {
   const t = useTranslate()
   const locale = useSettings((state) => state.locale)
   const location = useSettings((state) => state.location)
-  const province =
-    location?.region === 'CN'
-      ? provinces.find((item) => item.code === location.province)
-      : undefined
-
+  const province = location?.region === 'CN' ? provinces.find((item) => item.code === location.province) : undefined
   return (
     <SettingCell
       label={t('settingsLocation')}
@@ -249,9 +315,7 @@ const LocationSetting = () => {
                 value={province ? (location?.city ?? '') : ''}
                 disabled={!province?.cities.length}
                 placeholder={t('settingsLocationCity')}
-                options={
-                  province?.cities.map((item) => ({ value: item.code, label: item.name })) ?? []
-                }
+                options={province?.cities.map((item) => ({ value: item.code, label: item.name })) ?? []}
                 onChange={(value) => {
                   if (province) {
                     setLocation({ region: 'CN', province: province.code, city: value })
@@ -260,16 +324,7 @@ const LocationSetting = () => {
               />
             </>
           ) : (
-            <Select
-              ariaLabel={t('settingsLocationRegion')}
-              className={styles.regionSelect}
-              value={location?.region ?? ''}
-              placeholder={t('settingsLocationRegion')}
-              options={regionCodes
-                .map((code) => ({ value: code, label: getRegionName(code, locale) }))
-                .sort((a, b) => a.label.localeCompare(b.label, locale))}
-              onChange={(value) => setLocation({ region: value })}
-            />
+            <Select ariaLabel={t('settingsLocationRegion')} className={styles.regionSelect} value={location?.region ?? ''} placeholder={t('settingsLocationRegion')} options={regionCodes.map((code) => ({ value: code, label: getRegionName(code, locale) })).sort((a, b) => a.label.localeCompare(b.label, locale))} onChange={(value) => setLocation({ region: value })} />
           )}
         </div>
       }
@@ -285,93 +340,27 @@ const LocaleSetting = () => {
       label={t('settingsLocalePreference')}
       status={null}
       action={
-        <Select
-          ariaLabel={t('settingsLocalePreference')}
-          value={locale}
-          options={[
-            { value: 'zh-CN', label: t('settingsLocaleZhCN'), lang: 'zh-CN' },
-            { value: 'en-US', label: t('settingsLocaleEnUS'), lang: 'en' },
-          ]}
-          onChange={setLocale}
-        />
+        <Select ariaLabel={t('settingsLocalePreference')} value={locale} options={[{ value: 'zh-CN', label: t('settingsLocaleZhCN'), lang: 'zh-CN' }, { value: 'en-US', label: t('settingsLocaleEnUS'), lang: 'en' }]} onChange={setLocale} />
       }
     />
   )
 }
 
-/** 朗读音色：stella（海星，女声）/ tide（暗潮，男声） */
-const TtsVoiceSetting = () => {
-  const t = useTranslate()
-  const ttsVoice = useSettings((state) => state.ttsVoice)
-  return (
-    <SettingCell
-      label={t('settingsTtsVoice')}
-      status={null}
-      action={
-        <Select
-          ariaLabel={t('settingsTtsVoice')}
-          value={ttsVoice}
-          options={[
-            { value: 'stella', label: t('settingsTtsVoiceStella') },
-            { value: 'tide', label: t('settingsTtsVoiceTide') },
-          ]}
-          onChange={setTtsVoice}
-        />
-      }
-    />
-  )
-}
-
-/** 覆盖导入的二次确认，叠在设置弹窗上 */
-const ImportConfirm = ({
-  historyImport,
-}: {
-  historyImport: ReturnType<typeof useHistoryImport>
-}) => {
+const ImportConfirm = ({ historyImport }: { historyImport: ReturnType<typeof useHistoryImport> }) => {
   const t = useTranslate()
   return (
-    <Modal
-      title={t('historyImportConfirmTitle')}
-      className={styles.importConfirm}
-      onClose={historyImport.cancel}
-      footer={
-        <>
-          <Button variant="outlined" size="m" autoFocus onClick={historyImport.cancel}>
-            {t('cancel')}
-          </Button>
-          <Button variant="dangerOutlined" size="m" onClick={() => void historyImport.confirm()}>
-            {t('historyImportConfirm')}
-          </Button>
-        </>
-      }
-    >
+    <Modal title={t('historyImportConfirmTitle')} className={styles.importConfirm} onClose={historyImport.cancel} footer={<><Button variant="outlined" size="m" autoFocus onClick={historyImport.cancel}>{t('cancel')}</Button><Button variant="dangerOutlined" size="m" onClick={() => void historyImport.confirm()}>{t('historyImportConfirm')}</Button></>}>
       <div className={styles.importConfirmText}>{t('historyImportConfirmDescription')}</div>
     </Modal>
   )
 }
 
 const themeOptions: { value: ThemePreference; label: TranslationKey; icon: ReactNode }[] = [
-  {
-    value: 'light',
-    label: 'avatarMenuSettingsDialogThemeSelectLightOption',
-    icon: <IconLightOutline16 />,
-  },
-  {
-    value: 'dark',
-    label: 'avatarMenuSettingsDialogThemeSelectDarkOption',
-    icon: <IconDarkOutline16 />,
-  },
-  {
-    value: 'system',
-    label: 'avatarMenuSettingsDialogThemeSelectSystemOption',
-    icon: <IconFollowsystemOutline16 />,
-  },
+  { value: 'light', label: 'avatarMenuSettingsDialogThemeSelectLightOption', icon: <IconLightOutline16 /> },
+  { value: 'dark', label: 'avatarMenuSettingsDialogThemeSelectDarkOption', icon: <IconDarkOutline16 /> },
+  { value: 'system', label: 'avatarMenuSettingsDialogThemeSelectSystemOption', icon: <IconFollowsystemOutline16 /> },
 ]
 
-/**
- * 主题项：标题下方浅色 / 深色 / 跟随系统三个选块。
- * 与下方语言选项连续排列。
- */
 const ThemeSetting = () => {
   const t = useTranslate()
   const themePreference = useSettings((state) => state.themePreference)
@@ -381,17 +370,7 @@ const ThemeSetting = () => {
       {label}
       <div role="radiogroup" aria-label={label} className={styles.themeOptions}>
         {themeOptions.map((option) => (
-          <button
-            key={option.value}
-            type="button"
-            role="radio"
-            aria-checked={themePreference === option.value}
-            className={clsx(
-              styles.themeOption,
-              themePreference === option.value && styles.themeOptionSelected
-            )}
-            onClick={() => setThemePreference(option.value)}
-          >
+          <button key={option.value} type="button" role="radio" aria-checked={themePreference === option.value} className={clsx(styles.themeOption, themePreference === option.value && styles.themeOptionSelected)} onClick={() => setThemePreference(option.value)}>
             {option.icon}
             {t(option.label)}
           </button>
@@ -401,56 +380,27 @@ const ThemeSetting = () => {
   )
 }
 
-/** `reason` 为失败原因的文案 key，展示时按当前语言翻译后填入 `message` 参数。 */
 type Status = (TranslationMessage & { error?: boolean; reason?: TranslationKey }) | null
+const errorStatus = (key: TranslationKey, error: unknown): Status => ({ key, ...(error instanceof BackupError ? { reason: error.key } : { params: { message: error instanceof Error ? error.message : String(error) } }), error: true })
 
-/** 导出失败附带原因：预期的错误用对应文案作原因，其他错误用错误信息。 */
-const errorStatus = (key: TranslationKey, error: unknown): Status => ({
-  key,
-  ...(error instanceof BackupError
-    ? { reason: error.key }
-    : { params: { message: error instanceof Error ? error.message : String(error) } }),
-  error: true,
-})
-
-const SettingCell = ({
-  label,
-  description,
-  status,
-  action,
-  className,
-}: {
-  label: string
-  description?: string
-  status: Status
-  action: ReactNode
-  className?: string
-}) => {
+const SettingCell = ({ label, description, status, action, className }: { label: string; description?: string; status: Status; action: ReactNode; className?: string }) => {
   const t = useTranslate()
   return (
     <div className={clsx(styles.cell, styles.row, className)}>
       <div className={styles.text}>
         <div className={styles.label}>{label}</div>
-        {status || description ? (
-          <div className={clsx(styles.description, status?.error && styles.error)}>
-            {status
-              ? t(status.key, status.reason ? { message: t(status.reason) } : status.params)
-              : description}
-          </div>
-        ) : null}
+        {status || description ? <div className={clsx(styles.description, status?.error && styles.error)}>{status ? t(status.key, status.reason ? { message: t(status.reason) } : status.params) : description}</div> : null}
       </div>
       {action}
     </div>
   )
 }
 
-/** 选文件后先提示覆盖；确认后才检查文件并执行导入，任何错误都提示导入失败。 */
 const useHistoryImport = () => {
   const [file, setFile] = useState<File | null>(null)
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState<Status>(null)
   const importing = useRef(false)
-
   const confirm = async () => {
     if (!file || importing.current) {
       return
@@ -469,21 +419,12 @@ const useHistoryImport = () => {
       setBusy(false)
     }
   }
-
   return { file, busy, status, select: setFile, cancel: () => setFile(null), confirm }
 }
 
-/** 导入 = 覆盖：用选中文件替换本地全部会话与附件。 */
-const ImportHistory = ({
-  historyImport,
-  disabled,
-}: {
-  historyImport: ReturnType<typeof useHistoryImport>
-  disabled: boolean
-}) => {
+const ImportHistory = ({ historyImport, disabled }: { historyImport: ReturnType<typeof useHistoryImport>; disabled: boolean }) => {
   const t = useTranslate()
   const inputRef = useRef<HTMLInputElement>(null)
-
   return (
     <SettingCell
       label={t('historyImport')}
@@ -491,13 +432,7 @@ const ImportHistory = ({
       status={historyImport.status}
       action={
         <>
-          <Button
-            variant="outlined"
-            size="m"
-            className={clsx(styles.cellButton, styles.uploadButton)}
-            disabled={disabled}
-            onClick={() => inputRef.current?.click()}
-          >
+          <Button variant="outlined" size="m" className={clsx(styles.cellButton, styles.uploadButton)} disabled={disabled} onClick={() => inputRef.current?.click()}>
             <IconUploadOutline14 />
             {t('upload')}
           </Button>
@@ -520,13 +455,11 @@ const ImportHistory = ({
   )
 }
 
-/** 将全部会话及图片导出为 ZIP 文件并下载 */
 const ExportHistory = ({ disabled }: { disabled: boolean }) => {
   const t = useTranslate()
   const empty = useChatStore((state) => state.sessions.length === 0)
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState<Status>(null)
-
   const onExport = async () => {
     setBusy(true)
     setStatus(null)
@@ -544,20 +477,13 @@ const ExportHistory = ({ disabled }: { disabled: boolean }) => {
       setBusy(false)
     }
   }
-
   return (
     <SettingCell
       label={t('exportAllLabel')}
       description={t('historyExportDescription')}
       status={status}
       action={
-        <Button
-          variant="outlined"
-          size="m"
-          className={styles.cellButton}
-          disabled={disabled || busy || empty}
-          onClick={() => void onExport()}
-        >
+        <Button variant="outlined" size="m" className={styles.cellButton} disabled={disabled || busy || empty} onClick={() => void onExport()}>
           <IconDownloadOutline16 />
           {t('exportAllDownload')}
         </Button>
